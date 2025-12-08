@@ -1,0 +1,32 @@
+name: bookstore
+description: A new Flutter project.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.7.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_svg: ^2.0.7
+  google_fonts: ^6.1.0
+  cupertino_icons: ^1.0.8
+  dropdown_button2: ^2.3.9
+  file_picker: ^6.1.1
+  path_provider: ^2.1.2
+  open_file: ^3.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png

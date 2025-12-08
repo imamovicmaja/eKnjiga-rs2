@@ -1,0 +1,58 @@
+version: '3'
+services:
+  eknjiga-sql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    restart: unless-stopped
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=QWElkj132!
+      - MSSQL_PID=Developer
+    ports:
+      - 1401:1433
+    networks:
+      - eknjiga
+
+  eknjiga-api:
+    restart: unless-stopped
+    build:
+      context: .
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Smtp__Host=eknjiga-mailhog
+      - Smtp__Port=1025
+      - Smtp__User=
+      - Smtp__Pass=
+      - Smtp__From=noreply@eknjiga.local
+    ports:
+      - 7114:80
+    networks:
+      - eknjiga
+    depends_on:
+      - eknjiga-sql
+
+  eknjiga-rabbit:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    ports:
+      - "5672:5672" 
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - eknjiga
+  
+  eknjiga-mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - eknjiga
+
+networks:
+  eknjiga:
+    driver: bridge
