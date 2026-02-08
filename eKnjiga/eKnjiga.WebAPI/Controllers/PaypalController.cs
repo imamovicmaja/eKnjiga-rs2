@@ -1,13 +1,14 @@
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Services;
-using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using System.Threading;
-using System.Threading.Tasks;
+using Microsoft.AspNetCore.Mvc;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
@@ -22,24 +23,32 @@ namespace eKnjiga.WebAPI.Controllers
             _paypalService = paypalService;
         }
 
+        [Authorize]
         [HttpPost("create-order")]
-        public async Task<ActionResult<PaypalCreateOrderResponse>> Create([FromBody] PaypalCreateOrderRequest request, CancellationToken ct)
+        public async Task<ActionResult<PaypalCreateOrderResponse>> Create(
+            [FromBody] PaypalCreateOrderRequest request,
+            CancellationToken ct)
         {
             var result = await _paypalService.CreateOrderAsync(request, ct);
             return Ok(result);
         }
 
+        [Authorize]
         [HttpPost("capture-order/{orderId}")]
-        public async Task<ActionResult<PaypalCaptureOrderResponse>> Capture([FromRoute] string orderId, CancellationToken ct)
+        public async Task<ActionResult<PaypalCaptureOrderResponse>> Capture(
+            [FromRoute] string orderId,
+            CancellationToken ct)
         {
             var result = await _paypalService.CaptureOrderAsync(orderId, ct);
             return Ok(result);
         }
 
+        [AllowAnonymous]
         [HttpPost("webhook")]
         public async Task<IActionResult> Webhook(CancellationToken ct)
         {
             Request.EnableBuffering();
+
             string body;
             using (var reader = new StreamReader(Request.Body, leaveOpen: true))
             {
@@ -49,23 +58,32 @@ namespace eKnjiga.WebAPI.Controllers
 
             var headers = Request.Headers.ToDictionary(h => h.Key, h => h.Value.ToString());
 
-            var ok = await _paypalService.VerifyWebhookAsync(headers, Request.Path, body, ct);
+            var fullUrl = $"{Request.Scheme}://{Request.Host}{Request.PathBase}{Request.Path}";
+            var ok = await _paypalService.VerifyWebhookAsync(headers, fullUrl, body, ct);
             if (!ok) return Unauthorized();
+
+            // (sljedeći korak) ovdje ćemo pozvati handler da upiše status u bazu
+            // await _paypalService.HandleWebhookAsync(body, ct);
 
             return Ok();
         }
 
+        [AllowAnonymous]
         [HttpGet("return")]
-        public async Task<IActionResult> Return([FromQuery] string token, CancellationToken ct)
+        public IActionResult Return([FromQuery] string? token)
         {
-            var capture = await _paypalService.CaptureOrderAsync(token, ct);
-            return Ok(capture);
+            if (string.IsNullOrWhiteSpace(token))
+                return Redirect("eknjiga://paypal-return");
+
+            return Redirect($"eknjiga://paypal-return?token={Uri.EscapeDataString(token)}");
         }
 
+        [AllowAnonymous]
         [HttpGet("cancel")]
         public IActionResult Cancel()
         {
-            return Ok(new { status = "cancelled" });
+            return Redirect("eknjiga://paypal-cancel");
         }
+
     }
 }

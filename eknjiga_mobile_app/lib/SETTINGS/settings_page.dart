@@ -272,6 +272,10 @@ class _SettingsPageState extends State<SettingsPage> {
                             ),
                           ),
                         ),
+                        SizedBox(
+                          height:
+                              MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 16,
+                        ),
                       ],
                     ),
                   ),

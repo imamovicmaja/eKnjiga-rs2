@@ -1,17 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Services.Database;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using System.Net.Http;
 
 namespace eKnjiga.Services
 {
@@ -39,9 +41,9 @@ namespace eKnjiga.Services
             _context = context;
             _logger = logger;
 
-            _clientId     = cfg["PayPal:ClientId"]     ?? throw new ArgumentException("PayPal:ClientId nije postavljen.");
+            _clientId = cfg["PayPal:ClientId"] ?? throw new ArgumentException("PayPal:ClientId nije postavljen.");
             _clientSecret = cfg["PayPal:ClientSecret"] ?? throw new ArgumentException("PayPal:ClientSecret nije postavljen.");
-            _webhookId    = cfg["PayPal:WebhookId"]    ?? throw new ArgumentException("PayPal:WebhookId nije postavljen.");
+            _webhookId = cfg["PayPal:WebhookId"] ?? throw new ArgumentException("PayPal:WebhookId nije postavljen.");
 
             _baseUrl = cfg["PayPal:BaseUrl"];
             if (string.IsNullOrWhiteSpace(_baseUrl))
@@ -52,24 +54,8 @@ namespace eKnjiga.Services
                     : "https://api-m.paypal.com";
             }
 
-            _returnUrl = cfg["PayPal:ReturnUrl"] 
-                ?? throw new ArgumentException("PayPal:ReturnUrl nije postavljen.");
-            _cancelUrl = cfg["PayPal:CancelUrl"] 
-                ?? throw new ArgumentException("PayPal:CancelUrl nije postavljen.");
-        }
-
-
-        private async Task LogAsync(PaypalLog log, CancellationToken ct = default)
-        {
-            try
-            {
-                _context.PaypalLogs.Add(log);
-                await _context.SaveChangesAsync(ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Neuspješno snimanje PayPal loga (Operation={Operation})", log.Operation);
-            }
+            _returnUrl = cfg["PayPal:ReturnUrl"] ?? throw new ArgumentException("PayPal:ReturnUrl nije postavljen.");
+            _cancelUrl = cfg["PayPal:CancelUrl"] ?? throw new ArgumentException("PayPal:CancelUrl nije postavljen.");
         }
 
         private static string JoinHeaders(IDictionary<string, string> headers) =>
@@ -85,26 +71,20 @@ namespace eKnjiga.Services
         private async Task<string> GetAccessTokenAsync(CancellationToken ct)
         {
             var client = _httpFactory.CreateClient("paypal");
-            var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"{_baseUrl}/v1/oauth2/token");
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/oauth2/token");
+
             var auth = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_clientId}:{_clientSecret}"));
             req.Headers.Authorization = new AuthenticationHeaderValue("Basic", auth);
-            req.Content = new System.Net.Http.FormUrlEncodedContent(new Dictionary<string, string> { ["grant_type"] = "client_credentials" });
+            req.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["grant_type"] = "client_credentials"
+            });
 
             var res = await client.SendAsync(req, ct);
             var txt = await res.Content.ReadAsStringAsync(ct);
 
-            await LogAsync(new PaypalLog
-            {
-                Direction = "Outbound",
-                Operation = "GetAccessToken",
-                Url = req.RequestUri!.ToString(),
-                Method = "POST",
-                HttpStatus = (int)res.StatusCode,
-                ResponseBody = "{\"notice\":\"access_token redacted\"}"
-            }, ct);
-
             if (!res.IsSuccessStatusCode)
-                throw new InvalidOperationException($"PayPal token error: {res.StatusCode} {txt}");
+                throw new InvalidOperationException($"PayPal token error {(int)res.StatusCode}: {txt}");
 
             using var json = JsonDocument.Parse(txt);
             return json.RootElement.GetProperty("access_token").GetString()!;
@@ -112,23 +92,61 @@ namespace eKnjiga.Services
 
         public async Task<PaypalCreateOrderResponse> CreateOrderAsync(PaypalCreateOrderRequest model, CancellationToken ct = default)
         {
+            // 1) Ucitaj order iz baze
+            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == model.OrderId, ct);
+            if (order == null)
+                throw new InvalidOperationException($"Order {model.OrderId} ne postoji.");
+
+            // 2) Sigurnosna provjera iznosa
+            if (order.TotalPrice != model.Amount)
+                throw new InvalidOperationException($"Amount mismatch. DB={order.TotalPrice} Request={model.Amount}");
+
+            // 3) Currency
+            var currency = string.IsNullOrWhiteSpace(model.Currency) ? "EUR" : model.Currency;
+
             var token = await GetAccessTokenAsync(ct);
             var client = _httpFactory.CreateClient("paypal");
+
+            const decimal BAM_PER_EUR = 1.95583m;
+            var amountEur = Math.Round((decimal)model.Amount / BAM_PER_EUR, 2, MidpointRounding.AwayFromZero);
+
+            var amountStr = amountEur.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
             var payload = new
             {
                 intent = "CAPTURE",
                 purchase_units = new[]
                 {
-                    new {
-                        reference_id = model.ReferenceId ?? Guid.NewGuid().ToString("N"),
-                        amount = new {
-                            currency_code = model.Currency,
-                            value = model.Amount.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)
+                    new
+                    {
+                        reference_id = model.ReferenceId ?? order.Id.ToString(),
+                        description = $"eKnjiga order #{order.Id}",
+
+                        amount = new
+                        {
+                            currency_code = currency,
+                            value = amountStr,
+                            breakdown = new
+                            {
+                                item_total = new { currency_code = currency, value = amountStr }
+                            }
+                        },
+
+                        items = new[]
+                        {
+                            new
+                            {
+                                name = "eKnjiga purchase",
+                                description = $"Order #{order.Id}",
+                                quantity = "1",
+                                category = "DIGITAL_GOODS",
+                                unit_amount = new { currency_code = currency, value = amountStr }
+                            }
                         }
                     }
                 },
-                application_context = new {
+                application_context = new
+                {
                     shipping_preference = "NO_SHIPPING",
                     user_action = "PAY_NOW",
                     return_url = _returnUrl,
@@ -136,115 +154,215 @@ namespace eKnjiga.Services
                 }
             };
 
-            var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"{_baseUrl}/v2/checkout/orders");
+            var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v2/checkout/orders");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
             var reqBody = JsonSerializer.Serialize(payload);
-            req.Content = new System.Net.Http.StringContent(reqBody, Encoding.UTF8, "application/json");
+            req.Content = new StringContent(reqBody, Encoding.UTF8, "application/json");
 
             var res = await client.SendAsync(req, ct);
             var body = await res.Content.ReadAsStringAsync(ct);
 
-            var log = new PaypalLog
-            {
-                Direction = "Outbound",
-                Operation = "CreateOrder",
-                Url = req.RequestUri!.ToString(),
-                Method = "POST",
-                HttpStatus = (int)res.StatusCode,
-                RequestBody = reqBody,
-                ResponseBody = body,
-                CorrelationId = res.Headers.TryGetValues("Paypal-Debug-Id", out var v) ? v.FirstOrDefault() : null
-            };
-            await LogAsync(log, ct);
-
-            res.EnsureSuccessStatusCode();
+            if (!res.IsSuccessStatusCode)
+                throw new InvalidOperationException($"PayPal create-order error {(int)res.StatusCode}: {body}");
 
             using var doc = JsonDocument.Parse(body);
-            var id = doc.RootElement.GetProperty("id").GetString()!;
+            var paypalOrderId = doc.RootElement.GetProperty("id").GetString()!;
             var status = doc.RootElement.GetProperty("status").GetString()!;
             var approve = doc.RootElement.GetProperty("links").EnumerateArray()
                 .First(l => l.GetProperty("rel").GetString() == "approve")
                 .GetProperty("href").GetString()!;
 
-            log.OrderId = id;
-            await LogAsync(log, ct);
+            // 5) Upisi u DB
+            order.PaypalOrderId = paypalOrderId;
+            order.PaypalSandbox = _baseUrl.Contains("sandbox", StringComparison.OrdinalIgnoreCase);
+            order.PaymentStatus = PaymentStatus.Pending;
+
+            await _context.SaveChangesAsync(ct);
 
             return new PaypalCreateOrderResponse
             {
-                Id = id,
+                Id = paypalOrderId,
                 Status = status,
                 ApproveLink = approve
             };
         }
 
-        public async Task<PaypalCaptureOrderResponse> CaptureOrderAsync(string orderId, CancellationToken ct = default)
+        public async Task<PaypalCaptureOrderResponse> CaptureOrderAsync(
+    string orderId,
+    CancellationToken ct = default)
+{
+    _logger.LogInformation("=== PAYPAL CAPTURE START === orderId={OrderId}", orderId);
+
+    // 0) Provjera u bazi (idempotency)
+    var dbOrder = await _context.Orders
+        .FirstOrDefaultAsync(o => o.PaypalOrderId == orderId, ct);
+
+    if (dbOrder == null)
+    {
+        _logger.LogWarning("DB ORDER NOT FOUND for paypalOrderId={OrderId}", orderId);
+    }
+    else
+    {
+        _logger.LogInformation(
+            "DB ORDER FOUND. Status={PaymentStatus}, CaptureId={CaptureId}",
+            dbOrder.PaymentStatus,
+            dbOrder.PaypalCaptureId
+        );
+    }
+
+    if (dbOrder != null && !string.IsNullOrWhiteSpace(dbOrder.PaypalCaptureId))
+    {
+        _logger.LogWarning(
+            "ORDER ALREADY CAPTURED. Returning existing captureId={CaptureId}",
+            dbOrder.PaypalCaptureId
+        );
+
+        return new PaypalCaptureOrderResponse
         {
-            var token = await GetAccessTokenAsync(ct);
-            var client = _httpFactory.CreateClient("paypal");
+            Id = orderId,
+            Status = "ALREADY_CAPTURED",
+            CaptureId = dbOrder.PaypalCaptureId
+        };
+    }
 
-            var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"{_baseUrl}/v2/checkout/orders/{orderId}/capture");
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    // 1) Access token
+    var token = await GetAccessTokenAsync(ct);
+    _logger.LogInformation("Access token acquired");
 
-            var res = await client.SendAsync(req, ct);
-            var body = await res.Content.ReadAsStringAsync(ct);
+    var client = _httpFactory.CreateClient("paypal");
 
-            var log = new PaypalLog
-            {
-                Direction = "Outbound",
-                Operation = "CaptureOrder",
-                Url = req.RequestUri!.ToString(),
-                Method = "POST",
-                HttpStatus = (int)res.StatusCode,
-                ResponseBody = body,
-                OrderId = orderId,
-                CorrelationId = res.Headers.TryGetValues("Paypal-Debug-Id", out var v) ? v.FirstOrDefault() : null
-            };
-            await LogAsync(log, ct);
+    // 2) GET ORDER (status)
+    var getReq = new HttpRequestMessage(
+        HttpMethod.Get,
+        $"{_baseUrl}/v2/checkout/orders/{orderId}"
+    );
+    getReq.Headers.Authorization =
+        new AuthenticationHeaderValue("Bearer", token);
 
-            res.EnsureSuccessStatusCode();
+    _logger.LogInformation("GET ORDER -> {Url}", getReq.RequestUri);
 
-            using var doc = JsonDocument.Parse(body);
-            var status = doc.RootElement.GetProperty("status").GetString()!;
-            string? captureId = null;
+    var getRes = await client.SendAsync(getReq, ct);
+    var getBody = await getRes.Content.ReadAsStringAsync(ct);
 
-            try
-            {
-                captureId = doc.RootElement
-                    .GetProperty("purchase_units")[0]
-                    .GetProperty("payments")
-                    .GetProperty("captures")[0]
-                    .GetProperty("id").GetString();
-            }
-            catch { /* OK ako nema odmah capture-a */ }
+    _logger.LogInformation(
+        "GET ORDER RESPONSE status={StatusCode}, body={Body}",
+        (int)getRes.StatusCode,
+        getBody
+    );
 
-            log.CaptureId = captureId;
-            await LogAsync(log, ct);
+    if (!getRes.IsSuccessStatusCode)
+    {
+        _logger.LogError(
+            "GET ORDER FAILED status={StatusCode}, body={Body}",
+            (int)getRes.StatusCode,
+            getBody
+        );
 
-            return new PaypalCaptureOrderResponse
-            {
-                Id = orderId,
-                Status = status,
-                CaptureId = captureId
-            };
-        }
+        throw new InvalidOperationException(
+            $"PayPal get-order error {(int)getRes.StatusCode}: {getBody}");
+    }
+
+    using var getDoc = JsonDocument.Parse(getBody);
+    var orderStatus = getDoc.RootElement.GetProperty("status").GetString();
+
+    _logger.LogInformation("Order status before capture = {OrderStatus}", orderStatus);
+
+    if (!string.Equals(orderStatus, "APPROVED", StringComparison.OrdinalIgnoreCase))
+    {
+        _logger.LogError(
+            "ORDER NOT APPROVED. status={OrderStatus}. Capture aborted.",
+            orderStatus
+        );
+
+        throw new InvalidOperationException(
+            $"Order nije APPROVED (status={orderStatus}). Capture se ne izvršava.");
+    }
+
+    // 3) CAPTURE
+    var captureReq = new HttpRequestMessage(
+        HttpMethod.Post,
+        $"{_baseUrl}/v2/checkout/orders/{orderId}/capture"
+    );
+    captureReq.Headers.Authorization =
+        new AuthenticationHeaderValue("Bearer", token);
+    captureReq.Headers.Accept.Add(
+        new MediaTypeWithQualityHeaderValue("application/json"));
+    captureReq.Content =
+        new StringContent("{}", Encoding.UTF8, "application/json");
+
+    _logger.LogInformation("CAPTURE ORDER -> {Url}", captureReq.RequestUri);
+
+    var captureRes = await client.SendAsync(captureReq, ct);
+    var captureBody = await captureRes.Content.ReadAsStringAsync(ct);
+
+    _logger.LogInformation(
+        "CAPTURE RESPONSE status={StatusCode}, body={Body}",
+        (int)captureRes.StatusCode,
+        captureBody
+    );
+
+    if (!captureRes.IsSuccessStatusCode)
+    {
+        _logger.LogError(
+            "CAPTURE FAILED status={StatusCode}, body={Body}",
+            (int)captureRes.StatusCode,
+            captureBody
+        );
+
+        throw new InvalidOperationException(
+            $"PayPal capture error {(int)captureRes.StatusCode}: {captureBody}");
+    }
+
+    // 4) Parsiranje capture ID-a
+    using var capDoc = JsonDocument.Parse(captureBody);
+    var status = capDoc.RootElement.GetProperty("status").GetString()!;
+    string? captureId = null;
+
+    try
+    {
+        captureId = capDoc.RootElement
+            .GetProperty("purchase_units")[0]
+            .GetProperty("payments")
+            .GetProperty("captures")[0]
+            .GetProperty("id")
+            .GetString();
+    }
+    catch
+    {
+        _logger.LogWarning("CaptureId not found in PayPal response");
+    }
+
+    _logger.LogInformation("Parsed captureId={CaptureId}", captureId);
+
+    // 5) Update baze
+    if (dbOrder != null)
+    {
+        dbOrder.PaypalCaptureId = captureId;
+        dbOrder.PaymentStatus = PaymentStatus.Paid;
+        dbOrder.OrderStatus = OrderStatus.Completed;
+        await _context.SaveChangesAsync(ct);
+
+        _logger.LogInformation("DB UPDATED: Order marked as PAID");
+    }
+
+    _logger.LogInformation("=== PAYPAL CAPTURE SUCCESS ===");
+
+    return new PaypalCaptureOrderResponse
+    {
+        Id = orderId,
+        Status = status,
+        CaptureId = captureId
+    };
+}
 
         public async Task<bool> VerifyWebhookAsync(
             IDictionary<string, string> headers,
-            string path,
+            string webhookUrl,
             string body,
             CancellationToken ct = default
         )
         {
-            await LogAsync(new PaypalLog
-            {
-                Direction = "Inbound",
-                Operation = $"Webhook:{GetHeader(headers, "PAYPAL-EVENT-TYPE")}",
-                Method = "POST",
-                Url = path,
-                RequestHeaders = JoinHeaders(headers),
-                RequestBody = body
-            }, ct);
-
             var token = await GetAccessTokenAsync(ct);
             var client = _httpFactory.CreateClient("paypal");
 
@@ -259,29 +377,45 @@ namespace eKnjiga.Services
                 webhook_event = JsonSerializer.Deserialize<object>(body)
             };
 
-            var reqMsg = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Post, $"{_baseUrl}/v1/notifications/verify-webhook-signature");
+            var reqMsg = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/notifications/verify-webhook-signature");
             reqMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
             var reqBody = JsonSerializer.Serialize(payload);
-            reqMsg.Content = new System.Net.Http.StringContent(reqBody, Encoding.UTF8, "application/json");
+            reqMsg.Content = new StringContent(reqBody, Encoding.UTF8, "application/json");
 
             var res = await client.SendAsync(reqMsg, ct);
             var txt = await res.Content.ReadAsStringAsync(ct);
 
-            await LogAsync(new PaypalLog
-            {
-                Direction = "Outbound",
-                Operation = "VerifyWebhookSignature",
-                Url = reqMsg.RequestUri!.ToString(),
-                Method = "POST",
-                HttpStatus = (int)res.StatusCode,
-                RequestBody = reqBody,
-                ResponseBody = txt
-            }, ct);
-
             if (!res.IsSuccessStatusCode) return false;
 
             using var doc = JsonDocument.Parse(txt);
-            return string.Equals(doc.RootElement.GetProperty("verification_status").GetString(), "SUCCESS", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(
+                doc.RootElement.GetProperty("verification_status").GetString(),
+                "SUCCESS",
+                StringComparison.OrdinalIgnoreCase
+            );
+        }
+
+        public async Task HandleWebhookAsync(string body, CancellationToken ct = default)
+        {
+            using var doc = JsonDocument.Parse(body);
+
+            var eventType = doc.RootElement.TryGetProperty("event_type", out var et)
+                ? et.GetString()
+                : null;
+
+            string? orderId = null;
+            if (doc.RootElement.TryGetProperty("resource", out var res) &&
+                res.ValueKind == JsonValueKind.Object &&
+                res.TryGetProperty("id", out var rid))
+            {
+                orderId = rid.GetString();
+            }
+
+            if (string.IsNullOrWhiteSpace(eventType))
+                return;
+
+            _logger.LogInformation("PayPal webhook handled. event_type={EventType}, orderId={OrderId}", eventType, orderId);
         }
     }
 }

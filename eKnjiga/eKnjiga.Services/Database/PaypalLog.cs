@@ -1,6 +1,5 @@
 using System;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace eKnjiga.Services.Database
 {
@@ -18,7 +17,7 @@ namespace eKnjiga.Services.Database
 
         [Required]
         [MaxLength(128)]
-        public string Operation { get; set; } = string.Empty; 
+        public string Operation { get; set; } = string.Empty;
 
         [MaxLength(512)]
         public string? Url { get; set; }
@@ -29,15 +28,15 @@ namespace eKnjiga.Services.Database
         public int? HttpStatus { get; set; }
 
         [MaxLength(128)]
-        public string? CorrelationId { get; set; } 
+        public string? CorrelationId { get; set; }
 
-        [MaxLength(64)]
+        [MaxLength(128)]
         public string? OrderId { get; set; }
 
-        [MaxLength(64)]
+        [MaxLength(128)]
         public string? CaptureId { get; set; }
 
-        [MaxLength(64)]
+        [MaxLength(128)]
         public string? PayerId { get; set; }
 
         [MaxLength(32)]
@@ -49,6 +48,7 @@ namespace eKnjiga.Services.Database
         public string? RequestHeaders { get; set; }
         public string? RequestBody { get; set; }
         public string? ResponseBody { get; set; }
+
         public string? Error { get; set; }
     }
 }

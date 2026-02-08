@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'paypal_checkout_page.dart';
 
 import '../models/book.dart';
 import '../services/api_service.dart';
@@ -39,8 +40,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
   double get total =>
       _items.fold(0, (sum, item) => sum + item.book.price * item.qty);
 
-  Future<void> _confirm() async {
-
+  Future<void> _confirm({required int paymentStatus}) async {
     final validItems = _items.where((i) => i.qty > 0).toList();
     if (validItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -54,6 +54,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
       await ApiService.createOrder(
         type: 0,
         totalPrice: total,
+        paymentStatus: paymentStatus,
         orderItems: validItems
             .map(
               (i) => {
@@ -113,7 +114,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
               children: [
                 Expanded(
                   child: Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
@@ -183,7 +184,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
                                         Text(
                                           b.authors.join(', '),
                                           maxLines: 1,
@@ -193,12 +193,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                             fontSize: 13,
                                           ),
                                         ),
-                                        const SizedBox(height: 6),
+                                        const SizedBox(height: 2),
                                         Text(
                                           'Cijena: ${_price(b.price)}',
                                           style: const TextStyle(fontSize: 13),
                                         ),
-                                        const SizedBox(height: 8),
+                                        const SizedBox(height: 2),
                                         Row(
                                           children: [
                                             const Text('Količina:'),
@@ -209,13 +209,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                   if (item.qty > 1) {
                                                     final oldQty = item.qty;
                                                     item.qty--;
-                                                    final diff =
-                                                        oldQty - item.qty;
-                                                    for (var i = 0;
-                                                        i < diff;
-                                                        i++) {
-                                                      Cart.I
-                                                          .remove(item.book);
+                                                    final diff = oldQty - item.qty;
+                                                    for (var i = 0; i < diff; i++) {
+                                                      Cart.I.remove(item.book);
                                                     }
                                                   } else {
                                                     Cart.I.remove(item.book);
@@ -230,20 +226,15 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                             ),
                                             Text(
                                               item.qty.toString(),
-                                              style: const TextStyle(
-                                                fontSize: 15,
-                                              ),
+                                              style: const TextStyle(fontSize: 15),
                                             ),
                                             IconButton(
                                               onPressed: () {
                                                 setState(() {
                                                   final oldQty = item.qty;
                                                   item.qty++;
-                                                  final diff =
-                                                      item.qty - oldQty;
-                                                  for (var i = 0;
-                                                      i < diff;
-                                                      i++) {
+                                                  final diff = item.qty - oldQty;
+                                                  for (var i = 0; i < diff; i++) {
                                                     Cart.I.add(item.book);
                                                   }
                                                 });
@@ -253,7 +244,10 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                 size: 20,
                                               ),
                                             ),
-                                            const Spacer(),
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
                                             Text(
                                               'Ukupno: ${_price(b.price * item.qty)}',
                                               style: const TextStyle(
@@ -261,8 +255,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                                 fontWeight: FontWeight.bold,
                                               ),
                                             ),
-                                          ],
+                                          ]
                                         ),
+
                                       ],
                                     ),
                                   ),
@@ -272,7 +267,6 @@ class _CheckoutPageState extends State<CheckoutPage> {
                           ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
 
                 Row(
@@ -294,27 +288,140 @@ class _CheckoutPageState extends State<CheckoutPage> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: busy || _items.isEmpty ? null : _confirm,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: busy || _items.isEmpty
+                            ? null
+                            : () => _confirm(paymentStatus: 0),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: busy
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Plati prilikom preuzimanja'),
                       ),
                     ),
-                    child: busy
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Kupi sada'),
-                  ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: busy || _items.isEmpty
+                            ? null
+                            : () async {
+                                final validItems = _items.where((i) => i.qty > 0).toList();
+                                if (validItems.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Nema stavki za kupovinu.')),
+                                  );
+                                  return;
+                                }
+
+                                setState(() => busy = true);
+
+                                try {
+                                  // 1️⃣ Kreiraj ORDER u bazi (PaymentStatus = Pending / Online)
+                                  final orderId = await ApiService.createOrder(
+                                    type: 0,
+                                    totalPrice: total,
+                                    paymentStatus: 1, // online / pending
+                                    orderItems: validItems
+                                        .map((i) => {
+                                              "bookId": i.book.id,
+                                              "quantity": i.qty,
+                                              "unitPrice": i.book.price,
+                                            })
+                                        .toList(),
+                                  );
+
+                                  // 2️⃣ Kreiraj PayPal order (backend)
+                                  final paypal = await ApiService.paypalCreateOrder(
+                                    orderId: orderId,
+                                    amount: total,
+                                    currency: 'EUR',
+                                  );
+
+                                  // 3️⃣ Otvori PayPal WebView
+                                  final paid = await Navigator.push<bool>(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PaypalCheckoutPage(
+                                        approveUrl: paypal.approveLink,
+                                        paypalOrderId: paypal.id,
+                                        returnUrlPrefix:
+                                            ApiService.paypalReturnUrlPrefix,
+                                        cancelUrlPrefix:
+                                            ApiService.paypalCancelUrlPrefix,
+                                      ),
+                                    ),
+                                  );
+
+                                  // 4️⃣ Ako je plaćanje uspješno
+                                  if (paid == true) {
+                                    for (final item in validItems) {
+                                      for (var i = 0; i < item.qty; i++) {
+                                        Cart.I.remove(item.book);
+                                      }
+                                    }
+
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Plaćanje uspješno završeno!'),
+                                      ),
+                                    );
+                                    Navigator.pop(context, true);
+                                  } else {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Plaćanje je otkazano.'),
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Greška: $e')),
+                                  );
+                                } finally {
+                                  if (mounted) setState(() => busy = false);
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: busy
+                            ? const SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text('Online plaćanje'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -8,12 +8,24 @@ namespace eKnjiga.Services
 {
     public interface IPaypalService
     {
-        Task<PaypalCreateOrderResponse> CreateOrderAsync(PaypalCreateOrderRequest request, CancellationToken ct = default);
-        Task<PaypalCaptureOrderResponse> CaptureOrderAsync(string orderId, CancellationToken ct = default);
+        Task<PaypalCreateOrderResponse> CreateOrderAsync(
+            PaypalCreateOrderRequest request,
+            CancellationToken ct = default
+        );
+
+        Task<PaypalCaptureOrderResponse> CaptureOrderAsync(
+            string orderId,
+            CancellationToken ct = default
+        );
 
         Task<bool> VerifyWebhookAsync(
             IDictionary<string, string> headers,
-            string path,
+            string webhookUrl,
+            string body,
+            CancellationToken ct = default
+        );
+        
+        Task HandleWebhookAsync(
             string body,
             CancellationToken ct = default
         );

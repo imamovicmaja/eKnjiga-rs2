@@ -15,12 +15,13 @@ dependencies:
   syncfusion_flutter_pdfviewer: ^31.1.19
   path_provider: ^2.1.4
   shared_preferences: ^2.3.2
+  webview_flutter: ^4.7.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  flutter_launcher_icons: ^0.13.1   # ✅ dodano ovdje
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
@@ -28,7 +29,7 @@ flutter:
     - assets/images/
     - assets/images/logo.png
 
-flutter_launcher_icons:             # ✅ ispod "flutter:", ali na istom nivou
+flutter_launcher_icons:             
   android: true
   ios: true
   image_path: "assets/images/logo.png"

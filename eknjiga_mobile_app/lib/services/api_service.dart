@@ -7,6 +7,7 @@ import '../models/category.dart';
 import '../models/book.dart';
 import '../models/order.dart';
 import '../models/review.dart';
+import '../models/paypal.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
@@ -347,16 +348,17 @@ class ApiService {
     }
   }
 
-  static Future<void> createOrder({
+  static Future<int> createOrder({
     required int type,
     required List<Map<String, dynamic>> orderItems,
     required double totalPrice,
+    required int paymentStatus,
   }) async {
     final body = {
       "orderDate": DateTime.now().toIso8601String(),
       "totalPrice": totalPrice,
       "orderStatus": 0,
-      "paymentStatus": 2,
+      "paymentStatus": paymentStatus,
       "type": type,
       "userId": userID,
       "orderItems": orderItems,
@@ -374,6 +376,9 @@ class ApiService {
     if (response.statusCode != 200 && response.statusCode != 201) {
       throw Exception('Greška pri kreiranju narudžbe: ${response.body}');
     }
+
+    final data = jsonDecode(response.body);
+    return data['id']; // 👈 KLJUČNO
   }
 
   static Future<List<OrderResponse>> fetchOrders({int? type}) async {
@@ -496,6 +501,51 @@ class ApiService {
 
     if (resp.statusCode != 200 && resp.statusCode != 201) {
       throw Exception('Greška pri prijavi komentara: ${resp.body}');
+    }
+  }
+
+  // OVO stavi kako ti odgovara - poenta je da prefix bude isti kao backend Return/Cancel URL
+  static String get paypalReturnUrlPrefix => 'eknjiga://paypal-return';
+  static String get paypalCancelUrlPrefix => 'eknjiga://paypal-cancel';
+
+  static Future<PaypalCreateOrderResult> paypalCreateOrder({
+    required int orderId,
+    required double amount,
+    String currency = 'EUR',
+  }) async {
+    final body = {
+      "orderId": orderId,
+      "amount": amount,
+      "currency": currency,
+    };
+
+    final response = await http.post(
+      Uri.parse('$_apiBase/Paypal/create-order'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': _authHeader,
+      },
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('PayPal create-order greška: ${response.body}');
+    }
+
+    return PaypalCreateOrderResult.fromJson(jsonDecode(response.body));
+  }
+
+  static Future<void> paypalCaptureOrder(String paypalOrderId) async {
+    final response = await http.post(
+      Uri.parse('$_apiBase/Paypal/capture-order/$paypalOrderId'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': _authHeader,
+      },
+    );
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('PayPal capture-order greška: ${response.body}');
     }
   }
 

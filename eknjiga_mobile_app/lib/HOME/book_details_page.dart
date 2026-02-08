@@ -90,12 +90,19 @@ class BookDetailsPage extends StatelessWidget {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.97, // ✅ 90% visine
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
+                  // ✅ ako ti je sadržaj iza AppBar-a, dodaj mali top space:
+                  SizedBox(
+                    height: MediaQuery.of(context).padding.top + kToolbarHeight * 0.4,
+                  ),
+
                   Hero(
                     tag: 'book-cover-${book.id}',
                     child: ClipRRect(
@@ -104,12 +111,10 @@ class BookDetailsPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
+
                   Text(
                     book.name,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
                   Text(
@@ -117,6 +122,7 @@ class BookDetailsPage extends StatelessWidget {
                     style: const TextStyle(fontSize: 16, color: Colors.black87),
                     textAlign: TextAlign.center,
                   ),
+
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -140,6 +146,7 @@ class BookDetailsPage extends StatelessWidget {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 16),
                   const Align(
                     alignment: Alignment.centerLeft,
@@ -153,12 +160,11 @@ class BookDetailsPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    book.description.isNotEmpty
-                        ? book.description
-                        : 'Opis nije dostupan.',
+                    book.description.isNotEmpty ? book.description : 'Opis nije dostupan.',
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                     textAlign: TextAlign.justify,
                   ),
+
                   const SizedBox(height: 16),
                   const Align(
                     alignment: Alignment.centerLeft,
@@ -178,6 +184,9 @@ class BookDetailsPage extends StatelessWidget {
                     style: const TextStyle(fontSize: 14, color: Colors.black87),
                     textAlign: TextAlign.justify,
                   ),
+
+                  const Spacer(), // ✅ ovdje sad radi 100% jer imamo fiksnu visinu (SizedBox)
+
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -198,6 +207,7 @@ class BookDetailsPage extends StatelessWidget {
                                       "unitPrice": book.price,
                                     },
                                   ],
+                                  paymentStatus: 0,
                                 );
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
