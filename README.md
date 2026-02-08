@@ -41,11 +41,11 @@ Zatim odabrati željeni uređaj ili pokreni direktno pomoću:
 
 *Mobilna verzija, user 2:*
 - Korisničko ime: `maja`
-- Lozinka: `admin`
+- Lozinka: `user`
 
 *Mobilna verzija, user 3:*
 - Korisničko ime: `haris`
-- Lozinka: `admin`
+- Lozinka: `user`
 
 
 ## Paypal user account 
