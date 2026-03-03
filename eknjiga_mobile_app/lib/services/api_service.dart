@@ -1,5 +1,7 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
+import 'package:http_parser/http_parser.dart';
 
 import '../models/comment.dart';
 import '../models/commentAnswer.dart';
@@ -21,6 +23,8 @@ class ApiService {
 
   static String? roleName;
   static bool get isAdmin => (roleName?.toLowerCase().trim() == 'admin');
+
+  // ---------- Session helpers ----------
 
   static Future<void> _saveSession() async {
     final sp = await SharedPreferences.getInstance();
@@ -46,41 +50,81 @@ class ApiService {
     _authHeader = '';
   }
 
+  // ---------- Auth headers (AUTO for every route except login) ----------
+
+  static Future<void> _ensureAuth() async {
+    if (_authHeader.isNotEmpty) return;
+    await restoreSession();
+  }
+
+  static Future<Map<String, String>> _headersJson({
+    bool includeContentType = true,
+  }) async {
+    await _ensureAuth();
+    final h = <String, String>{};
+
+    if (includeContentType) {
+      h['Content-Type'] = 'application/json';
+    }
+    if (_authHeader.isNotEmpty) {
+      h['Authorization'] = _authHeader;
+    }
+    return h;
+  }
+
+  static Future<Map<String, String>> _headersNoBody() async {
+    await _ensureAuth();
+    final h = <String, String>{};
+    if (_authHeader.isNotEmpty) {
+      h['Authorization'] = _authHeader;
+    }
+    return h;
+  }
+
+  // ---------- Login (ONLY route without auth header) ----------
+
   static Future<void> login(String username, String password) async {
     final response = await http.post(
-      Uri.parse('${_apiBase}/Users/login'),
+      Uri.parse('$_apiBase/Users/login'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'username': username, 'password': password}),
     );
 
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('Greška pri dodavanju uloge: ${response.body}');
+      throw Exception('Greška pri prijavi: ${response.body}');
     }
+
     final data = jsonDecode(response.body);
     userID = data["id"];
     roleName = (data["role"]?["name"] as String?)?.trim();
+
     final basicAuth =
         'Basic ${base64Encode(utf8.encode('$username:$password'))}';
     _authHeader = basicAuth;
+
+    await _saveSession();
   }
+
+  // ---------- Comments ----------
 
   static Future<List<Comment>> fetchComments() async {
     final response = await http.get(
-      Uri.parse('${_apiBase}/Comment?RetrieveAll=true'),
+      Uri.parse('$_apiBase/Comment?RetrieveAll=true'),
+      headers: await _headersNoBody(),
     );
 
     if (response.statusCode == 200) {
       final List data = jsonDecode(response.body)['items'];
       return data.map<Comment>((json) => Comment.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatu komentara');
+      throw Exception('Greška pri dohvatu komentara: ${response.body}');
     }
   }
 
   static Future<void> addComment(String content) async {
     final response = await http.post(
       Uri.parse('$_apiBase/Comment'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headersJson(),
       body: jsonEncode({'content': content, 'userId': userID}),
     );
 
@@ -90,15 +134,23 @@ class ApiService {
   }
 
   static Future<void> deleteComment(int id) async {
-    final response = await http.delete(Uri.parse('${_apiBase}/Comment/$id'));
+    final response = await http.delete(
+      Uri.parse('$_apiBase/Comment/$id'),
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode != 200 && response.statusCode != 204) {
-      throw Exception("Greška pri brisanju komentara");
+      throw Exception('Greška pri brisanju komentara: ${response.body}');
     }
   }
 
+  // ---------- Comment Answers ----------
+
   static Future<List<CommentAnswer>> fetchCommentAnswers() async {
-    final response = await http.get(Uri.parse('${_apiBase}/CommentAnswer'));
+    final response = await http.get(
+      Uri.parse('$_apiBase/CommentAnswer'),
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode == 200) {
       final List data = jsonDecode(response.body)['items'];
@@ -106,7 +158,7 @@ class ApiService {
           .map<CommentAnswer>((json) => CommentAnswer.fromJson(json))
           .toList();
     } else {
-      throw Exception('Greška pri dohvatu odgovora');
+      throw Exception('Greška pri dohvatu odgovora: ${response.body}');
     }
   }
 
@@ -128,7 +180,7 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$_apiBase/CommentAnswer'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -139,13 +191,16 @@ class ApiService {
 
   static Future<void> deleteCommentAnswer(int id) async {
     final response = await http.delete(
-      Uri.parse('${_apiBase}/CommentAnswer/$id'),
+      Uri.parse('$_apiBase/CommentAnswer/$id'),
+      headers: await _headersNoBody(),
     );
 
-    if (response.statusCode != 200) {
-      throw Exception("Greška pri brisanju odgovora");
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw Exception('Greška pri brisanju odgovora: ${response.body}');
     }
   }
+
+  // ---------- Comment Reactions ----------
 
   static Future<void> addCommentReaction({
     required int userId,
@@ -162,7 +217,7 @@ class ApiService {
 
     final resp = await http.post(
       Uri.parse('$_apiBase/CommentReaction'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -184,7 +239,7 @@ class ApiService {
 
     final resp = await http.delete(
       Uri.parse('$_apiBase/CommentReaction'),
-      headers: {'Content-Type': 'application/json'},
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -196,6 +251,7 @@ class ApiService {
   static Future<Map<String, dynamic>?> fetchMyReactions(int userId) async {
     final resp = await http.get(
       Uri.parse('$_apiBase/CommentReaction?UserId=$userId'),
+      headers: await _headersNoBody(),
     );
 
     if (resp.statusCode != 200) {
@@ -207,39 +263,46 @@ class ApiService {
     }
 
     final data = jsonDecode(resp.body) as Map<String, dynamic>;
-
     final List<Map<String, dynamic>> items =
         (data['items'] as List? ?? []).cast<Map<String, dynamic>>();
 
-    return {
-      'items': items,
-    };
+    return {'items': items};
   }
 
+  // ---------- Categories ----------
+
   static Future<List<Category>> fetchCategories() async {
-    final response = await http.get(Uri.parse('${_apiBase}/Category'));
+    final response = await http.get(
+      Uri.parse('$_apiBase/Category'),
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body)['items'];
       return data.map((json) => Category.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatanju kategorija');
+      throw Exception('Greška pri dohvatanju kategorija: ${response.body}');
     }
   }
 
+  // ---------- Books ----------
+
   static Future<List<Book>> fetchBooks({int? categoryId}) async {
-    final uri = Uri.parse('${_apiBase}/Book').replace(
+    final uri = Uri.parse('$_apiBase/Book').replace(
       queryParameters:
           categoryId != null ? {'CategoryId': categoryId.toString()} : null,
     );
 
-    final response = await http.get(uri);
+    final response = await http.get(
+      uri,
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body)['items'];
       return data.map((json) => Book.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatu knjiga');
+      throw Exception('Greška pri dohvatu knjiga: ${response.body}');
     }
   }
 
@@ -251,33 +314,42 @@ class ApiService {
       queryParams['CategoryId'] = categoryId.toString();
     }
 
-    final uri = Uri.parse('${_apiBase}/Book/recommended')
-        .replace(queryParameters: queryParams);
+    final uri =
+        Uri.parse('$_apiBase/Book/recommended').replace(queryParameters: queryParams);
 
-    final response = await http.get(uri);
+    final response = await http.get(
+      uri,
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body);
       return data.map((json) => Book.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatu preporučenih knjiga');
+      throw Exception('Greška pri dohvatu preporučenih knjiga: ${response.body}');
     }
   }
 
   static Future<List<Book>> fetchNewBooks() async {
-    final response = await http.get(Uri.parse('${_apiBase}/Book/new'));
+    final response = await http.get(
+      Uri.parse('$_apiBase/Book/new'),
+      headers: await _headersNoBody(),
+    );
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body)['items'];
       return data.map((json) => Book.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatu knjiga');
+      throw Exception('Greška pri dohvatu knjiga: ${response.body}');
     }
   }
 
   static Future<List<Book>> fetchUserBooks() async {
     final url = Uri.parse('$_apiBase/Users/$userID');
-    final resp = await http.get(url);
+    final resp = await http.get(
+      url,
+      headers: await _headersNoBody(),
+    );
 
     if (resp.statusCode != 200) {
       throw Exception('Greška pri dohvatu korisničkih knjiga: ${resp.body}');
@@ -300,8 +372,14 @@ class ApiService {
     throw Exception('Neočekivan format odgovora: ${decoded.runtimeType}');
   }
 
+  // ---------- Users ----------
+
   static Future<Map<String, dynamic>> fetchUserById() async {
-    final resp = await http.get(Uri.parse('$_apiBase/Users/${userID}'));
+    final resp = await http.get(
+      Uri.parse('$_apiBase/Users/$userID'),
+      headers: await _headersNoBody(),
+    );
+
     if (resp.statusCode != 200) {
       throw Exception('Greška pri dohvatu korisnika: ${resp.body}');
     }
@@ -338,8 +416,8 @@ class ApiService {
     }
 
     final resp = await http.put(
-      Uri.parse('$_apiBase/Users/${userID}'),
-      headers: {'Content-Type': 'application/json'},
+      Uri.parse('$_apiBase/Users/$userID'),
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -347,6 +425,8 @@ class ApiService {
       throw Exception('Greška pri izmjeni korisnika: ${resp.body}');
     }
   }
+
+  // ---------- Orders ----------
 
   static Future<int> createOrder({
     required int type,
@@ -366,10 +446,7 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$_apiBase/Order'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -378,18 +455,19 @@ class ApiService {
     }
 
     final data = jsonDecode(response.body);
-    return data['id']; // 👈 KLJUČNO
+    return data['id'];
   }
 
   static Future<List<OrderResponse>> fetchOrders({int? type}) async {
     final params = <String, String>{};
     if (type != null) params['type'] = type.toString();
+    if (userID > 0) params['userId'] = userID.toString();
 
     final uri = Uri.parse('$_apiBase/Order').replace(queryParameters: params);
 
     final response = await http.get(
       uri,
-      headers: {'Authorization': _authHeader},
+      headers: await _headersNoBody(),
     );
 
     if (response.statusCode != 200) {
@@ -398,13 +476,14 @@ class ApiService {
 
     final decoded = jsonDecode(response.body);
     final List items = (decoded['items'] as List?) ?? [];
-
     return items.map((e) => OrderResponse.fromJson(e)).toList();
   }
 
+  // ---------- Reviews ----------
+
   static Future<void> createReview({
     required double rating,
-    required int bookId
+    required int bookId,
   }) async {
     final body = {
       "rating": rating,
@@ -414,17 +493,12 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$_apiBase/Review'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception(
-        'Greška pri kreiranju recenzije: ${response.body}',
-      );
+      throw Exception('Greška pri kreiranju recenzije: ${response.body}');
     }
   }
 
@@ -435,7 +509,7 @@ class ApiService {
 
     final response = await http.get(
       Uri.parse(url),
-      headers: {'Authorization': _authHeader},
+      headers: await _headersNoBody(),
     );
 
     if (response.statusCode != 200) {
@@ -468,10 +542,7 @@ class ApiService {
 
     final response = await http.put(
       Uri.parse('$_apiBase/Review/$reviewId'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -479,6 +550,8 @@ class ApiService {
       throw Exception('Greška pri izmjeni recenzije: ${response.body}');
     }
   }
+
+  // ---------- Reports ----------
 
   static Future<void> reportComment({
     required int? userReportedId,
@@ -492,10 +565,7 @@ class ApiService {
 
     final resp = await http.post(
       Uri.parse('$_apiBase/UserReport'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -504,7 +574,8 @@ class ApiService {
     }
   }
 
-  // OVO stavi kako ti odgovara - poenta je da prefix bude isti kao backend Return/Cancel URL
+  // ---------- PayPal ----------
+
   static String get paypalReturnUrlPrefix => 'eknjiga://paypal-return';
   static String get paypalCancelUrlPrefix => 'eknjiga://paypal-cancel';
 
@@ -521,10 +592,7 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$_apiBase/Paypal/create-order'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
       body: jsonEncode(body),
     );
 
@@ -538,10 +606,7 @@ class ApiService {
   static Future<void> paypalCaptureOrder(String paypalOrderId) async {
     final response = await http.post(
       Uri.parse('$_apiBase/Paypal/capture-order/$paypalOrderId'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: await _headersJson(),
     );
 
     if (response.statusCode != 200 && response.statusCode != 201) {
@@ -549,4 +614,83 @@ class ApiService {
     }
   }
 
+  // ---------- Profile image upload (multipart) ----------
+
+  static Future<void> updateProfileImage(File file) async {
+    await _ensureAuth();
+    if (userID == 0) {
+      throw Exception('Niste prijavljeni.');
+    }
+
+    final uri = Uri.parse('$_apiBase/Users/$userID/profile-image');
+    final request = http.MultipartRequest('PUT', uri);
+
+    if (_authHeader.isNotEmpty) {
+      request.headers['Authorization'] = _authHeader;
+    }
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        file.path,
+        contentType: _guessImageContentType(file.path),
+      ),
+    );
+
+    final streamed = await request.send();
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode != 200 && resp.statusCode != 204) {
+      throw Exception('Greška pri uploadu slike: ${resp.body}');
+    }
+  }
+
+  static Future<void> updateProfileImagePath({required String path}) async {
+    await _ensureAuth();
+    if (userID == 0) {
+      throw Exception('Niste prijavljeni.');
+    }
+
+    final uri = Uri.parse('$_apiBase/Users/$userID/profile-image');
+    final request = http.MultipartRequest('PUT', uri);
+
+    if (_authHeader.isNotEmpty) {
+      request.headers['Authorization'] = _authHeader;
+    }
+
+    final lower = path.toLowerCase();
+    final isPng = lower.endsWith('.png');
+    final isJpg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+
+    // Kamera/emulator nekad vrati čudan path bez ekstenzije -> forsiraj jpg
+    final filename = isPng ? 'profile.png' : 'profile.jpg';
+    final contentType = isPng
+        ? MediaType('image', 'png')
+        : MediaType('image', 'jpeg');
+
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        path,
+        filename: filename,
+        contentType: contentType,
+      ),
+    );
+
+    final streamed = await request.send();
+    final resp = await http.Response.fromStream(streamed);
+
+    if (resp.statusCode != 200 && resp.statusCode != 204) {
+      throw Exception('Greška pri uploadu slike: ${resp.body}');
+    }
+  }
+
+  static MediaType _guessImageContentType(String path) {
+    final p = path.toLowerCase();
+    if (p.endsWith('.png')) return MediaType('image', 'png');
+    if (p.endsWith('.jpg') || p.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    return MediaType('application', 'octet-stream');
+  }
 }

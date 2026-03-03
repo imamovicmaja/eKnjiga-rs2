@@ -78,5 +78,33 @@ namespace eKnjiga.WebAPI.Controllers
             var user = await _userService.Register(request);
             return Ok(user);
         }
+
+        [HttpPut("{id}/profile-image")]
+        [Consumes("multipart/form-data")]
+        public async Task<ActionResult<UserResponse>> UpdateProfileImage(int id, [FromForm] IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest("File is required.");
+
+            const long maxBytes = 2 * 1024 * 1024;
+            if (file.Length > maxBytes)
+                return BadRequest("File is too large (max 2MB).");
+
+            if (file.ContentType != "image/jpeg" && file.ContentType != "image/png")
+                return BadRequest("Only JPG and PNG are allowed.");
+
+            byte[] bytes;
+            using (var ms = new MemoryStream())
+            {
+                await file.CopyToAsync(ms);
+                bytes = ms.ToArray();
+            }
+
+            var updated = await _userService.UpdateProfileImageAsync(id, bytes);
+            if (updated == null)
+                return NotFound();
+
+            return Ok(updated);
+        }
     }
 } 

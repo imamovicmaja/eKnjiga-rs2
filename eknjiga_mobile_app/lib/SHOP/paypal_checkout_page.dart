@@ -7,11 +7,9 @@ class PaypalCheckoutPage extends StatefulWidget {
   final String approveUrl;
   final String paypalOrderId;
 
-  /// URL-ovi koje si postavio u backend config:
-  /// PayPal:ReturnUrl  -> npr. https://example.com/api/paypal/return
-  /// PayPal:CancelUrl  -> npr. https://example.com/api/paypal/cancel
-  ///
-  /// Mi ćemo u WebView pratiti kad user dođe na return/cancel.
+  /// Mora se poklapati sa backend configom:
+  /// ReturnUrl:  eknjiga://paypal-return
+  /// CancelUrl:  eknjiga://paypal-cancel
   final String returnUrlPrefix;
   final String cancelUrlPrefix;
 
@@ -29,6 +27,7 @@ class PaypalCheckoutPage extends StatefulWidget {
 
 class _PaypalCheckoutPageState extends State<PaypalCheckoutPage> {
   late final WebViewController _controller;
+
   bool _busy = true;
   bool _handled = false;
 
@@ -38,55 +37,94 @@ class _PaypalCheckoutPageState extends State<PaypalCheckoutPage> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0xFFFFFFFF))
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) => setState(() => _busy = true),
-          onPageFinished: (_) => setState(() => _busy = false),
+          onPageStarted: (_) {
+            if (!mounted) return;
+            setState(() => _busy = true);
+          },
+          onPageFinished: (_) {
+            if (!mounted) return;
+            setState(() => _busy = false);
+          },
           onNavigationRequest: (NavigationRequest request) async {
             final url = request.url;
 
-            if (_handled) {
-              return NavigationDecision.prevent;
-            }
+debugPrint('PayPal NAV: $url');
 
-            if (url.startsWith('eknjiga://paypal-cancel')) {
-              _handled = true;
-              if (mounted) Navigator.pop(context, false);
-              return NavigationDecision.prevent;
-            }
+if (_handled) return NavigationDecision.prevent;
 
-            if (url.startsWith('eknjiga://paypal-return')) {
-              _handled = true;
+final isHttp = url.startsWith('http://') || url.startsWith('https://');
+final isReturn = url.startsWith(widget.returnUrlPrefix);
+final isCancel = url.startsWith(widget.cancelUrlPrefix);
 
-              try {
-                final uri = Uri.parse(url);
-                final tokenFromUrl = uri.queryParameters['token'];
+// ✅ dozvoli webview “internal” URL-ove koje PayPal koristi
+final isInternalOk =
+    url == 'about:blank' ||
+    url.startsWith('about:blank') ||
+    url.startsWith('data:') ||
+    url.startsWith('blob:');
 
-                if (tokenFromUrl == null || tokenFromUrl.isEmpty) {
-                  throw Exception('PayPal token nije pronađen u return URL-u.');
-                }
+// ⛔ samo blokiraj ono što je baš external/intent
+final isBlockedScheme =
+    url.startsWith('intent://') ||
+    url.startsWith('market://') ||
+    url.startsWith('paypal://') ||
+    url.startsWith('tel:') ||
+    url.startsWith('mailto:');
 
-                await ApiService.paypalCaptureOrder(tokenFromUrl);
+if (isBlockedScheme) {
+  return NavigationDecision.prevent;
+}
 
-                if (mounted) Navigator.pop(context, true);
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('PayPal capture greška: $e')),
-                  );
-                  Navigator.pop(context, false);
-                }
-              }
+// Ako nije http/https niti internal niti return/cancel -> blokiraj
+if (!isHttp && !isInternalOk && !isReturn && !isCancel) {
+  return NavigationDecision.prevent;
+}
 
-              return NavigationDecision.prevent;
-            }
+if (isCancel) {
+  _handled = true;
+  if (mounted) Navigator.pop(context, false);
+  return NavigationDecision.prevent;
+}
 
-            return NavigationDecision.navigate;
+if (isReturn) {
+  _handled = true;
+  try {
+    final uri = Uri.parse(url);
+    final token = uri.queryParameters['token'];
+
+    if (token == null || token.isEmpty) {
+      throw Exception('PayPal token nije pronađen.');
+    }
+
+    await ApiService.paypalCaptureOrder(token);
+
+    if (mounted) Navigator.pop(context, true);
+  } catch (e) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PayPal greška: $e')),
+      );
+      Navigator.pop(context, false);
+    }
+  }
+  return NavigationDecision.prevent;
+}
+
+return NavigationDecision.navigate;
           },
-
         ),
       )
       ..loadRequest(Uri.parse(widget.approveUrl));
+  }
+
+  @override
+  void dispose() {
+    // dodatna sigurnost – prekida WebView lifecycle
+    _handled = true;
+    super.dispose();
   }
 
   @override

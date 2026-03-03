@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class RoleController : BaseCRUDController<RoleResponse, RoleSearchObject, RoleUpsertRequest, RoleUpsertRequest>
     {
         public RoleController(IRoleService service) : base(service)
         {
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<RoleResponse>> Get([FromQuery] RoleSearchObject? search = null)

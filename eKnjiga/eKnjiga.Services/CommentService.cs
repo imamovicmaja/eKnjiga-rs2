@@ -114,6 +114,7 @@ namespace eKnjiga.Services
                         CreatedAt = ca.User.CreatedAt,
                         BirthDate = ca.User.BirthDate,
                         Gender = ca.User.Gender,
+                        ProfileImage = ca.User.ProfileImage,
                         Role = ca.User.Role != null ? new RoleResponse
                         {
                             Id = ca.User.Role.Id,
@@ -144,6 +145,7 @@ namespace eKnjiga.Services
                     CreatedAt = comment.User.CreatedAt,
                     BirthDate = comment.User.BirthDate,
                     Gender = comment.User.Gender,
+                    ProfileImage = comment.User.ProfileImage,
                     Role = comment.User.Role != null ? new RoleResponse
                     {
                         Id = comment.User.Role.Id,

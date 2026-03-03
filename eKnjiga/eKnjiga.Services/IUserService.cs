@@ -16,5 +16,6 @@ namespace eKnjiga.Services
         Task<bool> DeleteAsync(int id);
         Task<UserResponse?> AuthenticateAsync(UserLoginRequest request);
         Task<UserResponse> Register(UserUpsertRequest request);
+        Task<UserResponse?> UpdateProfileImageAsync(int id, byte[] imageBytes);
     }
 } 

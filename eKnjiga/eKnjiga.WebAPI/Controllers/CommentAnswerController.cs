@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class CommentAnswerController : BaseCRUDController<CommentAnswerResponse, CommentAnswerSearchObject, CommentAnswerUpsertRequest, CommentAnswerUpsertRequest>
     {
         public CommentAnswerController(ICommentAnswerService service) : base(service)
         {
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<CommentAnswerResponse>> Get([FromQuery] CommentAnswerSearchObject? search = null)

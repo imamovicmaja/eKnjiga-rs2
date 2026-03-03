@@ -32,6 +32,8 @@ namespace eKnjiga.Services.Database
         public string PasswordSalt { get; set; } = string.Empty;
                 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public byte[]? ProfileImage { get; set; }
                 
         [Phone]
         [MaxLength(20)]

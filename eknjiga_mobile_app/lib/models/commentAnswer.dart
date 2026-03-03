@@ -44,10 +44,15 @@ class ParentComment {
 class User {
   final String firstName;
   final String lastName;
+  final String? profileImage;
 
-  User({required this.firstName, required this.lastName});
+  User({required this.firstName, required this.lastName, this.profileImage});
 
   factory User.fromJson(Map<String, dynamic> json) {
-    return User(firstName: json['firstName'], lastName: json['lastName']);
+    return User(
+      firstName: json['firstName'], 
+      lastName: json['lastName'],
+      profileImage: json['profileImage']
+    );
   }
 }

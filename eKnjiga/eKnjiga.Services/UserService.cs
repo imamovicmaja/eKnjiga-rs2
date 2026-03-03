@@ -223,6 +223,7 @@ namespace eKnjiga.Services
                 CreatedAt = user.CreatedAt,
                 BirthDate = user.BirthDate,
                 Gender = user.Gender,
+                ProfileImage = user.ProfileImage,
                 Role = user.Role != null ? new RoleResponse
                 {
                     Id = user.Role.Id,
@@ -325,6 +326,18 @@ namespace eKnjiga.Services
             await _context.SaveChangesAsync();
 
             return await GetByIdAsync(user.Id) ?? throw new InvalidOperationException("Kreiranje korisnika nije uspjelo.");
+        }
+
+        public async Task<UserResponse?> UpdateProfileImageAsync(int id, byte[] imageBytes)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
+            if (user == null)
+                return null;
+
+            user.ProfileImage = imageBytes;
+            await _context.SaveChangesAsync();
+
+            return await GetByIdAsync(id);
         }
     }
 }

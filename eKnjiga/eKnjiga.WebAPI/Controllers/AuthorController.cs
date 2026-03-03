@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class AuthorController : BaseCRUDController<AuthorResponse, AuthorSearchObject, AuthorUpsertRequest, AuthorUpsertRequest>
     {
         public AuthorController(IAuthorService service) : base(service)
         {
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<AuthorResponse>> Get([FromQuery] AuthorSearchObject? search = null)

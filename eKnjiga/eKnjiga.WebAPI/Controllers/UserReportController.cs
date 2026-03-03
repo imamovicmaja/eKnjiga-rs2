@@ -9,14 +9,13 @@ using System.Security.Claims;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class UserReportController : BaseCRUDController<UserReportResponse, UserReportSearchObject, UserReportUpsertRequest, UserReportUpsertRequest>
     {
         public UserReportController(IUserReportService service) : base(service)
         {
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<UserReportResponse>> Get([FromQuery] UserReportSearchObject? search = null)

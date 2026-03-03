@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import './../Home/home_page.dart';
 import './../BOOKS/books_page.dart';
 import './../SHOP/shop_page.dart';
@@ -23,9 +28,14 @@ class _SettingsPageState extends State<SettingsPage> {
   final _emailCtrl = TextEditingController();
   final _lozinkaCtrl = TextEditingController();
   final _potvrdaCtrl = TextEditingController();
+  Uint8List? _profileImageBytes;
 
   bool _loading = true;
   bool _saving = false;
+
+  final _picker = ImagePicker();
+  File? _pickedImageFile;
+  bool _uploadingImage = false;
 
   @override
   void initState() {
@@ -52,6 +62,18 @@ class _SettingsPageState extends State<SettingsPage> {
       _imeCtrl.text = (user['firstName'] ?? '').toString();
       _prezimeCtrl.text = (user['lastName'] ?? '').toString();
       _emailCtrl.text = (user['email'] ?? '').toString();
+
+      final imgBase64 = user['profileImage'];
+
+      if (imgBase64 != null && imgBase64.toString().trim().isNotEmpty) {
+        try {
+          _profileImageBytes = base64Decode(imgBase64.toString());
+        } catch (_) {
+          _profileImageBytes = null;
+        }
+      } else {
+        _profileImageBytes = null;
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -103,6 +125,100 @@ class _SettingsPageState extends State<SettingsPage> {
       ).showSnackBar(SnackBar(content: Text('Greška pri spremanju: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _pickAndUploadProfileImage() async {
+    try {
+      final xfile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 800,
+      );
+
+      if (xfile == null) return;
+
+      setState(() {
+        _pickedImageFile = File(xfile.path);
+        _uploadingImage = true;
+      });
+
+      await ApiService.updateProfileImage(_pickedImageFile!);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profilna slika je ažurirana.')),
+      );
+
+      await _init();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Greška pri uploadu slike: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _uploadingImage = false);
+    }
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Kamera'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUpload(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Galerija'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickAndUpload(ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUpload(ImageSource source) async {
+    try {
+      final xfile = await _picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 800,
+      );
+      if (xfile == null) return;
+
+      // ako radiš samo mobile: koristi path
+      await ApiService.updateProfileImagePath(path: xfile.path);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profilna slika je ažurirana.')),
+      );
+
+      // ako želiš odmah prikazati novu sliku lokalno:
+      setState(() {
+        _pickedImageFile = File(xfile.path);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Greška: $e')),
+      );
     }
   }
 
@@ -175,13 +291,41 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        const CircleAvatar(
-                          radius: 50,
-                          backgroundColor: Colors.white,
-                          child: Icon(
-                            Icons.person,
-                            size: 45,
-                            color: Colors.blue,
+                        GestureDetector(
+                          onTap: _uploadingImage ? null : _showImageSourceSheet,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              CircleAvatar(
+                                radius: 50,
+                                backgroundColor: Colors.white,
+                                backgroundImage: _pickedImageFile != null
+                                    ? FileImage(_pickedImageFile!)
+                                    : (_profileImageBytes != null ? MemoryImage(_profileImageBytes!) : null)
+                                        as ImageProvider?,
+                                child: (_pickedImageFile == null && _profileImageBytes == null)
+                                    ? const Icon(Icons.person, size: 45, color: Colors.blue)
+                                    : null,
+                              ),
+                              Positioned(
+                                bottom: 0,
+                                right: 0,
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  padding: const EdgeInsets.all(8),
+                                  child: _uploadingImage
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 20),

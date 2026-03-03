@@ -41,7 +41,6 @@ builder.Services.AddAuthentication("BasicAuthentication")
 
 builder.Services.AddSingleton<IEmailQueue>(_ =>
     new RabbitEmailQueue(builder.Configuration["Rabbit:ConnectionString"]!));
-builder.Services.AddHostedService<EmailWorker>();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle

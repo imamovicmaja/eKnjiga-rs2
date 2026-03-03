@@ -112,6 +112,7 @@ namespace eKnjiga.Services
                         CreatedAt = comment.ParentComment.User.CreatedAt,
                         BirthDate = comment.ParentComment.User.BirthDate,
                         Gender = comment.ParentComment.User.Gender,
+                        ProfileImage = comment.ParentComment.User.ProfileImage,
                         Role = comment.ParentComment.User.Role != null ? new RoleResponse
                         {
                             Id = comment.ParentComment.User.Role.Id,

@@ -81,12 +81,19 @@ class _UserPageState extends State<UserPage> {
     super.dispose();
   }
 
+  String formatShortDate(DateTime dt) {
+    final mm = dt.month.toString().padLeft(2, '0');
+    final dd = dt.day.toString().padLeft(2, '0');
+    final yyyy = dt.year.toString();
+    return "$dd.$mm.$yyyy";
+  }
+
   Future<void> loadUsersFromApi({
     String? firstName,
     String? lastName,
     String? username,
     String? email,
-    int? roleId, 
+    int? roleId,
   }) async {
     try {
       if (mounted) setState(() => _loadingUsers = true);
@@ -1377,7 +1384,10 @@ class _UserPageState extends State<UserPage> {
                     _infoRow("Email", user['email']),
                     _infoRow("Username", user['username']),
                     _infoRow("Telefon", user['phoneNumber']),
-                    _infoRow("Datum rođenja", user['birthDate'].split('T')[0]),
+                    _infoRow(
+                      "Datum rođenja",
+                      formatShortDate(DateTime.parse(user['birthDate'])),
+                    ),
                     _infoRow("Spol", user['gender']),
                     const Divider(),
                     _infoRow("Uloga", user['role']['name']),

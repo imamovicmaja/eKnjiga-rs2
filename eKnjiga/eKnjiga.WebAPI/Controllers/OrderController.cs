@@ -8,14 +8,13 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class OrderController : BaseCRUDController<OrderResponse, OrderSearchObject, OrderUpsertRequest, OrderUpdateRequest>
     {
         public OrderController(IOrderService service) : base(service)
         {
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<OrderResponse>> Get([FromQuery] OrderSearchObject? search = null)

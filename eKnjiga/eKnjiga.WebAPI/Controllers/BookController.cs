@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [AllowAnonymous]
+    [Authorize]
     public class BookController : BaseCRUDController<BookResponse, BookSearchObject, BookUpsertRequest, BookUpsertRequest>
     {
         private readonly IBookService _bookService;
@@ -18,7 +18,6 @@ namespace eKnjiga.WebAPI.Controllers
             _bookService = service;
         }
         
-        // Allow anonymous access to GET endpoints only
         [HttpGet]
         [AllowAnonymous]
         public override async Task<PagedResult<BookResponse>> Get([FromQuery] BookSearchObject? search = null)
@@ -51,7 +50,6 @@ namespace eKnjiga.WebAPI.Controllers
         }
 
         [HttpGet("similar")]
-        [AllowAnonymous]
         public async Task<IReadOnlyList<BookResponse>> Similar(
             [FromServices] IRecommendationService rec,
             [FromQuery] int userId,

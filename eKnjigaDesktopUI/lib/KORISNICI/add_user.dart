@@ -8,6 +8,38 @@ import '../services/api_service.dart';
 
 import '../dialog/error_dialog.dart';
 
+String _formatDateForDisplayFromIso(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final raw = iso.split('T')[0]; 
+  final parts = raw.split('-');
+  if (parts.length != 3) return raw;
+  return '${parts[2].padLeft(2, '0')}.${parts[1].padLeft(2, '0')}.${parts[0]}';
+}
+
+DateTime _parseInitialBirthDate(String? isoOrNull) {
+  if (isoOrNull == null || isoOrNull.isEmpty) return DateTime(2000);
+  final raw = isoOrNull.split('T')[0];
+  final parsed = DateTime.tryParse(raw);
+  return parsed ?? DateTime(2000);
+}
+
+String _normalizeBirthDateForApi(String input) {
+  final t = input.trim();
+  if (t.isEmpty) return t;
+
+  if (t.contains('.')) {
+    final parts = t.split('.');
+    if (parts.length == 3) {
+      final dd = parts[0].padLeft(2, '0');
+      final mm = parts[1].padLeft(2, '0');
+      final yyyy = parts[2];
+      return '$yyyy-$mm-$dd';
+    }
+  }
+
+  return t;
+}
+
 void addUser(
   BuildContext context, 
   VoidCallback refreshUsers, {
@@ -28,9 +60,11 @@ void addUser(
   final phoneController = TextEditingController(
     text: initialData?['phoneNumber'] ?? '',
   );
+
   final birthDateController = TextEditingController(
-    text: initialData?['birthDate']?.split('T')[0] ?? '',
+    text: _formatDateForDisplayFromIso(initialData?['birthDate']?.toString()),
   );
+
   final passwordController = TextEditingController();
 
   String? firstNameError;
@@ -128,17 +162,22 @@ void addUser(
                           errorText: phoneError,
                         ),
                       ),
+
                       GestureDetector(
                         onTap: () async {
                           final date = await showDatePicker(
                             context: context,
-                            initialDate: DateTime(2000),
+
+                            initialDate: _parseInitialBirthDate(
+                              initialData?['birthDate']?.toString(),
+                            ),
+
                             firstDate: DateTime(1900),
                             lastDate: DateTime.now(),
                           );
                           if (date != null) {
                             birthDateController.text =
-                                date.toIso8601String().split('T')[0];
+                                '${date.day.toString().padLeft(2, '0')}.${date.month.toString().padLeft(2, '0')}.${date.year}';
                           }
                         },
                         child: AbsorbPointer(
@@ -466,7 +505,9 @@ void addUser(
                       "email": emailController.text,
                       "username": usernameController.text,
                       "phoneNumber": phoneController.text,
-                      "birthDate": birthDateController.text,
+
+                      "birthDate": _normalizeBirthDateForApi(birthDateController.text),
+
                       "gender": gender,
                       "roleId": selectedRoleId,
                       "cityId": selectedCityId,

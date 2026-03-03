@@ -384,7 +384,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    const double cardWidth = 140;
+    const double cardWidth = 120;
     const double imageHeight = 170;
 
     return SizedBox(

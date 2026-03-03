@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import './../Home/home_page.dart';
 import './../BOOKS/books_page.dart';
 import './../SHOP/shop_page.dart';
@@ -407,6 +410,66 @@ class _MessagesPageState extends State<MessagesPage> {
     }
   }
 
+  String _initials(String? firstName, String? lastName) {
+    final f = (firstName ?? '').trim();
+    final l = (lastName ?? '').trim();
+
+    String out = '';
+    if (f.isNotEmpty) out += f[0].toUpperCase();
+    if (l.isNotEmpty) out += l[0].toUpperCase();
+
+    if (out.isEmpty) return '?';
+    return out.length > 2 ? out.substring(0, 2) : out;
+  }
+
+  Widget _profileAvatar({
+  required String initials,
+  String? imageUrl,
+  double radius = 16,
+}) {
+  final raw = (imageUrl ?? '').trim();
+
+  ImageProvider? provider;
+
+  if (raw.isNotEmpty) {
+    final cleaned = raw.contains('base64,') ? raw.split('base64,').last : raw;
+
+    final isProbablyBase64 = !cleaned.startsWith('http') && cleaned.length > 100;
+
+    if (isProbablyBase64) {
+      try {
+        final Uint8List bytes = base64Decode(cleaned);
+        provider = MemoryImage(bytes);
+      } catch (_) {
+        provider = null;
+      }
+    } else if (cleaned.startsWith('http')) {
+      provider = NetworkImage(cleaned);
+    }
+  }
+
+  if (provider != null) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.white,
+      backgroundImage: provider,
+    );
+  }
+
+  return CircleAvatar(
+    radius: radius,
+    backgroundColor: const Color(0xFF9DAAE0),
+    child: Text(
+      initials,
+      style: TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: radius * 0.9,
+        color: Colors.black,
+      ),
+    ),
+  );
+}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -416,7 +479,7 @@ class _MessagesPageState extends State<MessagesPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: const [
-            Text('eBook', style: TextStyle(fontWeight: FontWeight.bold)),
+            Text('eKnjiga', style: TextStyle(fontWeight: FontWeight.bold)),
             Text(
               'For readers, by bookworms.',
               style: TextStyle(fontSize: 14, color: Colors.black),
@@ -563,6 +626,12 @@ class _MessagesPageState extends State<MessagesPage> {
         children: [
           Row(
             children: [
+              _profileAvatar(
+                initials: _initials(comment.user.firstName, comment.user.lastName),
+                imageUrl: comment.user.profileImage, 
+                radius: 16,
+              ),
+              const SizedBox(width: 10),
               Text(
                 "${comment.user.firstName} ${comment.user.lastName}",
                 style: const TextStyle(fontWeight: FontWeight.bold),
@@ -679,11 +748,19 @@ class _MessagesPageState extends State<MessagesPage> {
         children: [
                     Row(
             children: [
+              _profileAvatar(
+                initials: reply.user != null
+                    ? _initials(reply.user!.firstName, reply.user!.lastName)
+                    : _initials(userName, null), // fallback
+                imageUrl: reply.user?.profileImage, 
+                radius: 14,
+              ),
+              const SizedBox(width: 10),
               Text(
                 userName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              const Spacer(),
+               const Spacer(),
               Text(
                 "${reply.createdAt.toLocal()}".split(' ')[0],
                 style: const TextStyle(fontSize: 12, color: Colors.black),

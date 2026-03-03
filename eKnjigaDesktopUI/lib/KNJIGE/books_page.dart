@@ -101,12 +101,16 @@ class _BooksPageState extends State<BooksPage> {
     );
   }
 
+  String formatShortDate(DateTime dt) {
+    final mm = dt.month.toString().padLeft(2, '0');
+    final dd = dt.day.toString().padLeft(2, '0');
+    final yyyy = dt.year.toString();
+    return "$dd.$mm.$yyyy";
+  }
+
   // ---------------------- BOOKS ----------------------
 
-  Future<void> loadBooksFromApi({
-    String? name,
-    int? categoryId,
-  }) async {
+  Future<void> loadBooksFromApi({String? name, int? categoryId}) async {
     try {
       if (mounted) setState(() => _loadingBooks = true);
 
@@ -157,13 +161,10 @@ class _BooksPageState extends State<BooksPage> {
 
       if (mounted) {
         setState(() {
-          categories = fetched
-              .map((c) => {
-                    'id': c.id,
-                    'name': c.name,
-                    'bookIds': [],
-                  })
-              .toList();
+          categories =
+              fetched
+                  .map((c) => {'id': c.id, 'name': c.name, 'bookIds': []})
+                  .toList();
         });
       }
     } catch (e) {
@@ -200,17 +201,20 @@ class _BooksPageState extends State<BooksPage> {
 
       if (!mounted) return;
       setState(() {
-        authors = fetched
-            .map((a) => {
-                  'id': a.id,
-                  'firstName': a.firstName,
-                  'lastName': a.lastName,
-                  'birthDate': a.birthDate,
-                  'deathDate': a.deathDate,
-                  'description': a.description,
-                  'books': a.books,
-                })
-            .toList();
+        authors =
+            fetched
+                .map(
+                  (a) => {
+                    'id': a.id,
+                    'firstName': a.firstName,
+                    'lastName': a.lastName,
+                    'birthDate': a.birthDate,
+                    'deathDate': a.deathDate,
+                    'description': a.description,
+                    'books': a.books,
+                  },
+                )
+                .toList();
       });
     } catch (e) {
       debugPrint("Greška pri dohvaćanju autora: $e");
@@ -245,22 +249,23 @@ class _BooksPageState extends State<BooksPage> {
     try {
       if (mounted) setState(() => _loadingReviewUsers = true);
 
-      final fetched = await ApiService.fetchUsers(
-        includeTotalCount: false,
-      );
+      final fetched = await ApiService.fetchUsers(includeTotalCount: false);
 
       if (!mounted) return;
       setState(() {
-        reviewUsers = fetched
-            .map((m) => User(
-                  id: m['id'],
-                  firstName: m['name'],
-                  lastName: '',
-                  username: '',
-                  email: m['email'],
-                  isActive: true,
-                ))
-            .toList();
+        reviewUsers =
+            fetched
+                .map(
+                  (m) => User(
+                    id: m['id'],
+                    firstName: m['name'],
+                    lastName: '',
+                    username: '',
+                    email: m['email'],
+                    isActive: true,
+                  ),
+                )
+                .toList();
       });
     } catch (e) {
       debugPrint("Greška pri dohvaćanju korisnika za recenzije: $e");
@@ -312,11 +317,7 @@ class _BooksPageState extends State<BooksPage> {
       if (allEmpty) {
         loadReviewsFromApi();
       } else {
-        loadReviewsFromApi(
-          bookId: bookId,
-          userId: userId,
-          rating: rating,
-        );
+        loadReviewsFromApi(bookId: bookId, userId: userId, rating: rating);
       }
     });
   }
@@ -384,15 +385,17 @@ class _BooksPageState extends State<BooksPage> {
                       onPressed: () {
                         Navigator.pushAndRemoveUntil(
                           context,
-                          MaterialPageRoute(
-                            builder: (_) => const LoginPage(),
-                          ),
+                          MaterialPageRoute(builder: (_) => const LoginPage()),
                           (route) => false,
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor:
-                            const Color.fromARGB(255, 181, 156, 74),
+                        backgroundColor: const Color.fromARGB(
+                          255,
+                          181,
+                          156,
+                          74,
+                        ),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
@@ -436,8 +439,7 @@ class _BooksPageState extends State<BooksPage> {
                         child: Column(
                           children: [
                             Row(
-                              mainAxisAlignment:
-                                  MainAxisAlignment.spaceBetween,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // FILTER
@@ -453,8 +455,8 @@ class _BooksPageState extends State<BooksPage> {
                                           label: "Naziv",
                                           controller: _bookNameCtrl,
                                           loading: _loadingBooks,
-                                          onChanged: (_) =>
-                                              _onBookFieldChanged(),
+                                          onChanged:
+                                              (_) => _onBookFieldChanged(),
                                         ),
                                         SizedBox(
                                           width: 220,
@@ -466,42 +468,38 @@ class _BooksPageState extends State<BooksPage> {
                                                   .withOpacity(0.9),
                                               border: OutlineInputBorder(
                                                 borderRadius:
-                                                    BorderRadius.circular(
-                                                        12),
-                                                borderSide:
-                                                    BorderSide.none,
+                                                    BorderRadius.circular(12),
+                                                borderSide: BorderSide.none,
                                               ),
                                               contentPadding:
-                                                  const EdgeInsets
-                                                      .symmetric(
-                                                horizontal: 12,
-                                                vertical: 4,
-                                              ),
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 4,
+                                                  ),
                                             ),
                                             child: DropdownButtonHideUnderline(
                                               child: DropdownButton<int?>(
                                                 isExpanded: true,
-                                                value:
-                                                    _selectedBookCategoryId,
+                                                value: _selectedBookCategoryId,
                                                 hint: const Text(
-                                                    "Sve kategorije"),
+                                                  "Sve kategorije",
+                                                ),
                                                 items: [
-                                                  const DropdownMenuItem<
-                                                      int?>(
+                                                  const DropdownMenuItem<int?>(
                                                     value: null,
                                                     child: Text(
-                                                        "Sve kategorije"),
+                                                      "Sve kategorije",
+                                                    ),
                                                   ),
                                                   ...categories.map(
                                                     (c) =>
-                                                        DropdownMenuItem<
-                                                            int?>(
-                                                      value: c['id']
-                                                          as int,
-                                                      child: Text(
-                                                          c['name']
-                                                              .toString()),
-                                                    ),
+                                                        DropdownMenuItem<int?>(
+                                                          value: c['id'] as int,
+                                                          child: Text(
+                                                            c['name']
+                                                                .toString(),
+                                                          ),
+                                                        ),
                                                   ),
                                                 ],
                                                 onChanged: (value) {
@@ -519,20 +517,17 @@ class _BooksPageState extends State<BooksPage> {
                                           onPressed: () {
                                             _bookNameCtrl.clear();
                                             setState(() {
-                                              _selectedBookCategoryId =
-                                                  null;
+                                              _selectedBookCategoryId = null;
                                             });
                                             _onBookFieldChanged();
                                           },
-                                          icon:
-                                              const Icon(Icons.restart_alt),
+                                          icon: const Icon(Icons.restart_alt),
                                           label: const Text("Reset"),
                                         ),
                                       ],
                                     ),
                                   ),
-                                ] else if (selectedSidebar ==
-                                    "AUTORI") ...[
+                                ] else if (selectedSidebar == "AUTORI") ...[
                                   Expanded(
                                     child: Wrap(
                                       spacing: 12,
@@ -540,19 +535,17 @@ class _BooksPageState extends State<BooksPage> {
                                       children: [
                                         _filterField(
                                           label: "Ime",
-                                          controller:
-                                              _authorFirstNameCtrl,
+                                          controller: _authorFirstNameCtrl,
                                           loading: _loadingAuthors,
-                                          onChanged: (_) =>
-                                              _onAuthorFieldChanged(),
+                                          onChanged:
+                                              (_) => _onAuthorFieldChanged(),
                                         ),
                                         _filterField(
                                           label: "Prezime",
-                                          controller:
-                                              _authorLastNameCtrl,
+                                          controller: _authorLastNameCtrl,
                                           loading: _loadingAuthors,
-                                          onChanged: (_) =>
-                                              _onAuthorFieldChanged(),
+                                          onChanged:
+                                              (_) => _onAuthorFieldChanged(),
                                         ),
                                         TextButton.icon(
                                           onPressed: () {
@@ -560,67 +553,68 @@ class _BooksPageState extends State<BooksPage> {
                                             _authorLastNameCtrl.clear();
                                             _onAuthorFieldChanged();
                                           },
-                                          icon:
-                                              const Icon(Icons.restart_alt),
+                                          icon: const Icon(Icons.restart_alt),
                                           label: const Text("Reset"),
                                         ),
                                       ],
                                     ),
                                   ),
-                                ] else if (selectedSidebar ==
-                                    "KATEGORIJA") ...[
+                                ] else if (selectedSidebar == "KATEGORIJA") ...[
                                   SizedBox(
                                     width: 300,
                                     child: TextField(
                                       controller: _categoryNameCtrl,
-                                      onChanged: (_) =>
-                                          _onCategoryFieldChanged(),
+                                      onChanged:
+                                          (_) => _onCategoryFieldChanged(),
                                       decoration: InputDecoration(
                                         hintText:
                                             "Pretraži kategorije po nazivu...",
-                                        prefixIcon:
-                                            const Icon(Icons.search),
-                                        suffixIcon: _loadingCategories
-                                            ? const Padding(
-                                                padding:
-                                                    EdgeInsets.all(12),
-                                                child: SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child:
-                                                      CircularProgressIndicator(
-                                                    strokeWidth: 2,
+                                        prefixIcon: const Icon(Icons.search),
+                                        suffixIcon:
+                                            _loadingCategories
+                                                ? const Padding(
+                                                  padding: EdgeInsets.all(12),
+                                                  child: SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
                                                   ),
-                                                ),
-                                              )
-                                            : (_categoryNameCtrl
-                                                    .text.isEmpty
-                                                ? null
-                                                : IconButton(
-                                                    icon: const Icon(
-                                                        Icons.clear),
-                                                    onPressed: () {
-                                                      _categoryNameCtrl
-                                                          .clear();
-                                                      _onCategoryFieldChanged();
-                                                    },
-                                                  )),
+                                                )
+                                                : (_categoryNameCtrl
+                                                        .text
+                                                        .isEmpty
+                                                    ? null
+                                                    : IconButton(
+                                                      icon: const Icon(
+                                                        Icons.clear,
+                                                      ),
+                                                      onPressed: () {
+                                                        _categoryNameCtrl
+                                                            .clear();
+                                                        _onCategoryFieldChanged();
+                                                      },
+                                                    )),
                                         filled: true,
-                                        fillColor: Colors.white
-                                            .withOpacity(0.9),
+                                        fillColor: Colors.white.withOpacity(
+                                          0.9,
+                                        ),
                                         contentPadding:
                                             const EdgeInsets.symmetric(
-                                                horizontal: 16),
+                                              horizontal: 16,
+                                            ),
                                         border: OutlineInputBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                           borderSide: BorderSide.none,
                                         ),
                                       ),
                                     ),
                                   ),
-                                ] else if (selectedSidebar ==
-                                    "RECENZIJA") ...[
+                                ] else if (selectedSidebar == "RECENZIJA") ...[
                                   Expanded(
                                     child: Wrap(
                                       spacing: 12,
@@ -639,39 +633,31 @@ class _BooksPageState extends State<BooksPage> {
                                                   .withOpacity(0.9),
                                               border: OutlineInputBorder(
                                                 borderRadius:
-                                                    BorderRadius.circular(
-                                                        12),
-                                                borderSide:
-                                                    BorderSide.none,
+                                                    BorderRadius.circular(12),
+                                                borderSide: BorderSide.none,
                                               ),
                                               contentPadding:
-                                                  const EdgeInsets
-                                                      .symmetric(
-                                                horizontal: 12,
-                                                vertical: 4,
-                                              ),
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 4,
+                                                  ),
                                             ),
                                             child: DropdownButtonHideUnderline(
                                               child: DropdownButton<int?>(
                                                 isExpanded: true,
-                                                value:
-                                                    _selectedReviewBookId,
-                                                hint: const Text(
-                                                    "Sve knjige"),
+                                                value: _selectedReviewBookId,
+                                                hint: const Text("Sve knjige"),
                                                 items: [
-                                                  const DropdownMenuItem<
-                                                      int?>(
+                                                  const DropdownMenuItem<int?>(
                                                     value: null,
-                                                    child: Text(
-                                                        "Sve knjige"),
+                                                    child: Text("Sve knjige"),
                                                   ),
                                                   ...books.map(
                                                     (b) =>
-                                                        DropdownMenuItem<
-                                                            int?>(
-                                                      value: b.id,
-                                                      child: Text(b.name),
-                                                    ),
+                                                        DropdownMenuItem<int?>(
+                                                          value: b.id,
+                                                          child: Text(b.name),
+                                                        ),
                                                   ),
                                                 ],
                                                 onChanged: (value) {
@@ -696,37 +682,33 @@ class _BooksPageState extends State<BooksPage> {
                                                   .withOpacity(0.9),
                                               border: OutlineInputBorder(
                                                 borderRadius:
-                                                    BorderRadius.circular(
-                                                        12),
-                                                borderSide:
-                                                    BorderSide.none,
+                                                    BorderRadius.circular(12),
+                                                borderSide: BorderSide.none,
                                               ),
                                               contentPadding:
-                                                  const EdgeInsets
-                                                      .symmetric(
-                                                horizontal: 12,
-                                                vertical: 4,
-                                              ),
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 12,
+                                                    vertical: 4,
+                                                  ),
                                             ),
                                             child: DropdownButtonHideUnderline(
-                                              child:
-                                                  DropdownButton<int?>(
+                                              child: DropdownButton<int?>(
                                                 isExpanded: true,
-                                                value:
-                                                    _selectedReviewUserId,
+                                                value: _selectedReviewUserId,
                                                 hint: const Text(
-                                                    "Svi korisnici"),
+                                                  "Svi korisnici",
+                                                ),
                                                 items: [
-                                                  const DropdownMenuItem<
-                                                      int?>(
+                                                  const DropdownMenuItem<int?>(
                                                     value: null,
                                                     child: Text(
-                                                        "Svi korisnici"),
+                                                      "Svi korisnici",
+                                                    ),
                                                   ),
                                                   ...reviewUsers.map(
-                                                    (u) =>
-                                                        DropdownMenuItem<
-                                                            int?>(
+                                                    (
+                                                      u,
+                                                    ) => DropdownMenuItem<int?>(
                                                       value: u.id,
                                                       child: Text(
                                                         "${u.firstName} ${u.lastName}",
@@ -749,25 +731,21 @@ class _BooksPageState extends State<BooksPage> {
                                         _filterField(
                                           label: "Ocjena (1, 2, 3, 4, 5)",
                                           controller: _reviewRatingCtrl,
-                                          keyboardType:
-                                              TextInputType.number,
+                                          keyboardType: TextInputType.number,
                                           loading: _loadingReviews,
-                                          onChanged: (_) =>
-                                              _onReviewFieldChanged(),
+                                          onChanged:
+                                              (_) => _onReviewFieldChanged(),
                                         ),
                                         TextButton.icon(
                                           onPressed: () {
                                             setState(() {
-                                              _selectedReviewBookId =
-                                                  null;
-                                              _selectedReviewUserId =
-                                                  null;
+                                              _selectedReviewBookId = null;
+                                              _selectedReviewUserId = null;
                                             });
                                             _reviewRatingCtrl.clear();
                                             _onReviewFieldChanged();
                                           },
-                                          icon:
-                                              const Icon(Icons.restart_alt),
+                                          icon: const Icon(Icons.restart_alt),
                                           label: const Text("Reset"),
                                         ),
                                       ],
@@ -785,19 +763,16 @@ class _BooksPageState extends State<BooksPage> {
                                           context,
                                           () => _onBookFieldChanged(),
                                         );
-                                      } else if (selectedSidebar ==
-                                          "AUTORI") {
+                                      } else if (selectedSidebar == "AUTORI") {
                                         addAuthor(
                                           context,
-                                          () =>
-                                              _onAuthorFieldChanged(),
+                                          () => _onAuthorFieldChanged(),
                                         );
                                       } else if (selectedSidebar ==
                                           "KATEGORIJA") {
                                         addCategory(
                                           context,
-                                          () =>
-                                              _onCategoryFieldChanged(),
+                                          () => _onCategoryFieldChanged(),
                                         );
                                       }
                                     },
@@ -811,8 +786,7 @@ class _BooksPageState extends State<BooksPage> {
                                         vertical: 16,
                                       ),
                                       shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
                                     ),
                                   ),
@@ -851,24 +825,25 @@ class _BooksPageState extends State<BooksPage> {
         decoration: InputDecoration(
           labelText: label,
           prefixIcon: const Icon(Icons.search),
-          suffixIcon: loading
-              ? const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              : (controller.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () {
-                        controller.clear();
-                        onChanged(controller.text);
-                      },
-                    )),
+          suffixIcon:
+              loading
+                  ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : (controller.text.isEmpty
+                      ? null
+                      : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          controller.clear();
+                          onChanged(controller.text);
+                        },
+                      )),
           filled: true,
           fillColor: Colors.white.withOpacity(0.9),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16),
@@ -916,9 +891,10 @@ class _BooksPageState extends State<BooksPage> {
                 fontSize: 14,
                 fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                 color: isActive ? Colors.black : Colors.grey[700],
-                backgroundColor: isActive
-                    ? Colors.white.withOpacity(0.1)
-                    : Colors.transparent,
+                backgroundColor:
+                    isActive
+                        ? Colors.white.withOpacity(0.1)
+                        : Colors.transparent,
               ),
             ),
           ],
@@ -934,242 +910,311 @@ class _BooksPageState extends State<BooksPage> {
           children: [
             const SizedBox(height: 16),
             Expanded(
-              child: books.isEmpty
-                  ? (_loadingBooks
-                      ? const Center(
-                          child: CircularProgressIndicator(),
-                        )
-                      : const Center(child: Text("Nema rezultata.")))
-                  : ListView.builder(
-                      itemCount: books.length,
-                      itemBuilder: (context, index) {
-                        final book = books[index];
-                        final hasCover = book.coverImageBase64 != null &&
-                          book.coverImageBase64!.isNotEmpty;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              showDialog(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  title: Row(
-                                    children: const [
-                                      Icon(
-                                        Icons.menu_book,
-                                        color: Color.fromARGB(255, 181, 156, 74),
-                                        size: 30,
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        "Detalji knjige",
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
+              child:
+                  books.isEmpty
+                      ? (_loadingBooks
+                          ? const Center(child: CircularProgressIndicator())
+                          : const Center(child: Text("Nema rezultata.")))
+                      : ListView.builder(
+                        itemCount: books.length,
+                        itemBuilder: (context, index) {
+                          final book = books[index];
+                          final hasCover =
+                              book.coverImageBase64 != null &&
+                              book.coverImageBase64!.isNotEmpty;
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: InkWell(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder:
+                                      (_) => AlertDialog(
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  content: SizedBox(
-                                    width: 400,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        _infoRow("Naziv", book.name),
-                                        _infoRow("Opis", book.description),
-                                        _infoRow(
-                                          "Cijena",
-                                          "${book.price.toStringAsFixed(2)} KM",
-                                        ),
-                                        _infoRow(
-                                          "Ocjena",
-                                          "${book.rating.toStringAsFixed(1)} (${book.ratingCount} ocjena)",
-                                        ),
-                                        _infoRow(
-                                          "Datum dodavanja",
-                                          book.createdAt.toLocal().toString().split(" ")[0],
-                                        ),
-                                        if (book.coverImageBase64 != null &&
-                                            book.coverImageBase64!.isNotEmpty)
-                                          Padding(
-                                            padding: const EdgeInsets.only(top: 12),
-                                            child: ClipRRect(
-                                              borderRadius: BorderRadius.circular(8),
-                                              child: Image.memory(
-                                                base64Decode(book.coverImageBase64!),
-                                                height: 180,
-                                                fit: BoxFit.cover,
+                                        title: Row(
+                                          children: const [
+                                            Icon(
+                                              Icons.menu_book,
+                                              color: Color.fromARGB(
+                                                255,
+                                                181,
+                                                156,
+                                                74,
+                                              ),
+                                              size: 30,
+                                            ),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              "Detalji knjige",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
                                               ),
                                             ),
-                                          ),
-                                        const SizedBox(height: 12),
-                                        if (book.pdfFileBase64 != null)
-                                          ElevatedButton.icon(
-                                            onPressed: () => saveAndOpenPdf(book.pdfFileBase64!),
-                                            icon: const Icon(Icons.picture_as_pdf),
-                                            label: const Text("Otvori PDF"),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context),
-                                      style: TextButton.styleFrom(
-                                        backgroundColor: Colors.red.shade300,
-                                        foregroundColor: Colors.black,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                          vertical: 12,
+                                          ],
                                         ),
+                                        content: SizedBox(
+                                          width: 400,
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              _infoRow("Naziv", book.name),
+                                              _infoRow(
+                                                "Opis",
+                                                book.description,
+                                              ),
+                                              _infoRow(
+                                                "Cijena",
+                                                "${book.price.toStringAsFixed(2)} KM",
+                                              ),
+                                              _infoRow(
+                                                "Ocjena",
+                                                "${book.rating.toStringAsFixed(1)} (${book.ratingCount} ocjena)",
+                                              ),
+                                              _infoRow(
+                                                "Datum dodavanja",
+                                                formatShortDate(book.createdAt)
+                                              ),
+                                              if (book.coverImageBase64 !=
+                                                      null &&
+                                                  book
+                                                      .coverImageBase64!
+                                                      .isNotEmpty)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                        top: 12,
+                                                      ),
+                                                  child: ClipRRect(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          8,
+                                                        ),
+                                                    child: Image.memory(
+                                                      base64Decode(
+                                                        book.coverImageBase64!,
+                                                      ),
+                                                      height: 180,
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                                  ),
+                                                ),
+                                              const SizedBox(height: 12),
+                                              if (book.pdfFileBase64 != null)
+                                                ElevatedButton.icon(
+                                                  onPressed:
+                                                      () => saveAndOpenPdf(
+                                                        book.pdfFileBase64!,
+                                                      ),
+                                                  icon: const Icon(
+                                                    Icons.picture_as_pdf,
+                                                  ),
+                                                  label: const Text(
+                                                    "Otvori PDF",
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed:
+                                                () => Navigator.pop(context),
+                                            style: TextButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.red.shade300,
+                                              foregroundColor: Colors.black,
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 24,
+                                                    vertical: 12,
+                                                  ),
+                                            ),
+                                            child: const Text("Zatvori"),
+                                          ),
+                                        ],
                                       ),
-                                      child: const Text("Zatvori"),
+                                );
+                              },
+                              child: Container(
+                                height: hasCover ? 150 : 80,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
+                                child: Row(
+                                  children: [
+                                    if (hasCover)
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(6),
+                                        child: Image.memory(
+                                          base64Decode(book.coverImageBase64!),
+                                          width: 100,
+                                          height: 150,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    else
+                                      const Icon(
+                                        Icons.menu_book,
+                                        color: Color.fromARGB(
+                                          255,
+                                          181,
+                                          156,
+                                          74,
+                                        ),
+                                        size: 40,
+                                      ),
+
+                                    const SizedBox(width: 12),
+
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            book.name,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            "Autori: ${book.authors.join(', ')}",
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    const SizedBox(width: 12),
+
+                                    Wrap(
+                                      spacing: 4,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.edit,
+                                            color: Colors.blue,
+                                          ),
+                                          onPressed: () {
+                                            addBook(
+                                              context,
+                                              () => _onBookFieldChanged(),
+                                              initialData: {
+                                                'id': book.id,
+                                                'name': book.name,
+                                                'description': book.description,
+                                                'price': book.price,
+                                                'authorIds': book.authorIds,
+                                                'categoryIds': book.categoryIds,
+                                                'coverImage':
+                                                    book.coverImageBase64,
+                                                'pdfFile': book.pdfFileBase64,
+                                              },
+                                            );
+                                          },
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            color: Colors.red,
+                                          ),
+                                          onPressed: () async {
+                                            final confirm = await showDialog<
+                                              bool
+                                            >(
+                                              context: context,
+                                              builder:
+                                                  (_) => AlertDialog(
+                                                    title: const Text(
+                                                      "Potvrda",
+                                                    ),
+                                                    content: const Text(
+                                                      "Da li sigurno želiš obrisati knjigu?",
+                                                    ),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed:
+                                                            () => Navigator.pop(
+                                                              context,
+                                                              false,
+                                                            ),
+                                                        child: const Text(
+                                                          "Otkaži",
+                                                        ),
+                                                      ),
+                                                      TextButton(
+                                                        onPressed:
+                                                            () => Navigator.pop(
+                                                              context,
+                                                              true,
+                                                            ),
+                                                        child: const Text(
+                                                          "Obriši",
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                            );
+                                            if (confirm == true) {
+                                              try {
+                                                await ApiService.deleteBook(
+                                                  book.id,
+                                                );
+                                                _onBookFieldChanged();
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  const SnackBar(
+                                                    content: Text(
+                                                      "Knjiga obrisana",
+                                                    ),
+                                                  ),
+                                                );
+                                              } catch (e) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      e.toString().replaceFirst(
+                                                        "Exception: ",
+                                                        "",
+                                                      ),
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                              );
-                            },
-                            child: Container(
-                              height: hasCover ? 150 : 80,
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              child: Row(
-                                children: [
-                                  if (hasCover)
-                                    ClipRRect(
-                                      borderRadius: BorderRadius.circular(6),
-                                      child: Image.memory(
-                                        base64Decode(book.coverImageBase64!),
-                                        width: 100,
-                                        height: 150,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    )
-                                  else
-                                    const Icon(
-                                      Icons.menu_book,
-                                      color: Color.fromARGB(255, 181, 156, 74),
-                                      size: 40,
-                                    ),
-
-                                  const SizedBox(width: 12),
-
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(
-                                          book.name,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          "Autori: ${book.authors.join(', ')}",
-                                          style: const TextStyle(fontSize: 13),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                  const SizedBox(width: 12),
-
-                                  Wrap(
-                                    spacing: 4,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.edit,
-                                          color: Colors.blue,
-                                        ),
-                                        onPressed: () {
-                                          addBook(
-                                            context,
-                                            () => _onBookFieldChanged(),
-                                            initialData: {
-                                              'id': book.id,
-                                              'name': book.name,
-                                              'description': book.description,
-                                              'price': book.price,
-                                              'authorIds': book.authorIds,
-                                              'categoryIds': book.categoryIds,
-                                              'coverImage': book.coverImageBase64,
-                                              'pdfFile': book.pdfFileBase64
-                                            },
-                                          );
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.delete,
-                                          color: Colors.red,
-                                        ),
-                                        onPressed: () async {
-                                          final confirm = await showDialog<bool>(
-                                            context: context,
-                                            builder: (_) => AlertDialog(
-                                              title: const Text("Potvrda"),
-                                              content: const Text(
-                                                "Da li sigurno želiš obrisati knjigu?",
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(context, false),
-                                                  child: const Text("Otkaži"),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(context, true),
-                                                  child: const Text("Obriši"),
-                                                ),
-                                              ],
-                                            ),
-                                          );
-                                          if (confirm == true) {
-                                            try {
-                                              await ApiService.deleteBook(book.id);
-                                              _onBookFieldChanged();
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text("Knjiga obrisana"),
-                                                ),
-                                              );
-                                            } catch (e) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    e.toString().replaceFirst(
-                                                          "Exception: ",
-                                                          "",
-                                                        ),
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          }
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ],
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
             ),
           ],
         );
@@ -1179,139 +1224,133 @@ class _BooksPageState extends State<BooksPage> {
           children: [
             const SizedBox(height: 16),
             Expanded(
-              child: authors.isEmpty
-                  ? (_loadingAuthors
-                      ? const Center(
-                          child: CircularProgressIndicator(),
-                        )
-                      : const Center(child: Text("Nema rezultata.")))
-                  : ListView.builder(
-                      itemCount: authors.length,
-                      itemBuilder: (context, index) {
-                        final author = authors[index];
-                        return Card(
-                          margin:
-                              const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListTile(
-                            onTap: () =>
-                                showAuthorDetailsDialog(context, author),
-                            leading: const Icon(
-                              Icons.person_outline,
-                              color:
-                                  Color.fromARGB(255, 181, 156, 74),
+              child:
+                  authors.isEmpty
+                      ? (_loadingAuthors
+                          ? const Center(child: CircularProgressIndicator())
+                          : const Center(child: Text("Nema rezultata.")))
+                      : ListView.builder(
+                        itemCount: authors.length,
+                        itemBuilder: (context, index) {
+                          final author = authors[index];
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            title: Text(
-                              "${author['firstName']} ${author['lastName']}",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                            child: ListTile(
+                              onTap:
+                                  () =>
+                                      showAuthorDetailsDialog(context, author),
+                              leading: const Icon(
+                                Icons.person_outline,
+                                color: Color.fromARGB(255, 181, 156, 74),
+                              ),
+                              title: Text(
+                                "${author['firstName']} ${author['lastName']}",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (author['birthDate'] != null)
+                                    Text(
+                                      "Rođen: ${formatAuthorDate(author['birthDate'])}",
+                                    ),
+                                  if (author['deathDate'] != null)
+                                    Text(
+                                      "Preminuo: ${formatAuthorDate(author['deathDate'])}",
+                                    ),
+                                ],
+                              ),
+                              trailing: Wrap(
+                                spacing: 12,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.edit,
+                                      color: Colors.blue,
+                                    ),
+                                    onPressed: () {
+                                      addAuthor(
+                                        context,
+                                        () => _onAuthorFieldChanged(),
+                                        initialData: author,
+                                      );
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.delete,
+                                      color: Colors.red,
+                                    ),
+                                    onPressed: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder:
+                                            (_) => AlertDialog(
+                                              title: const Text("Potvrda"),
+                                              content: const Text(
+                                                "Da li sigurno želiš obrisati autora?",
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed:
+                                                      () => Navigator.pop(
+                                                        context,
+                                                        false,
+                                                      ),
+                                                  child: const Text("Otkaži"),
+                                                ),
+                                                TextButton(
+                                                  onPressed:
+                                                      () => Navigator.pop(
+                                                        context,
+                                                        true,
+                                                      ),
+                                                  child: const Text("Obriši"),
+                                                ),
+                                              ],
+                                            ),
+                                      );
+                                      if (confirm == true) {
+                                        try {
+                                          await ApiService.deleteAuthor(
+                                            author['id'],
+                                          );
+                                          _onAuthorFieldChanged();
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            const SnackBar(
+                                              content: Text("Autor obrisan"),
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                e.toString().replaceFirst(
+                                                  "Exception: ",
+                                                  "",
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    },
+                                  ),
+                                ],
                               ),
                             ),
-                            subtitle: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                if (author['birthDate'] != null)
-                                  Text(
-                                    "Rođen: ${formatAuthorDate(author['birthDate'])}",
-                                  ),
-                                if (author['deathDate'] != null)
-                                  Text(
-                                    "Preminuo: ${formatAuthorDate(author['deathDate'])}",
-                                  ),
-                              ],
-                            ),
-                            trailing: Wrap(
-                              spacing: 12,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.edit,
-                                    color: Colors.blue,
-                                  ),
-                                  onPressed: () {
-                                    addAuthor(
-                                      context,
-                                      () => _onAuthorFieldChanged(),
-                                      initialData: author,
-                                    );
-                                  },
-                                ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete,
-                                    color: Colors.red,
-                                  ),
-                                  onPressed: () async {
-                                    final confirm =
-                                        await showDialog<bool>(
-                                      context: context,
-                                      builder: (_) => AlertDialog(
-                                        title:
-                                            const Text("Potvrda"),
-                                        content: const Text(
-                                          "Da li sigurno želiš obrisati autora?",
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(
-                                                    context, false),
-                                            child:
-                                                const Text("Otkaži"),
-                                          ),
-                                          TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(
-                                                    context, true),
-                                            child:
-                                                const Text("Obriši"),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (confirm == true) {
-                                      try {
-                                        await ApiService.deleteAuthor(
-                                          author['id'],
-                                        );
-                                        _onAuthorFieldChanged();
-                                        ScaffoldMessenger.of(
-                                                context)
-                                            .showSnackBar(
-                                          const SnackBar(
-                                            content: Text(
-                                              "Autor obrisan",
-                                            ),
-                                          ),
-                                        );
-                                      } catch (e) {
-                                        ScaffoldMessenger.of(
-                                                context)
-                                            .showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              e
-                                                  .toString()
-                                                  .replaceFirst(
-                                                    "Exception: ",
-                                                    "",
-                                                  ),
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
             ),
           ],
         );
@@ -1321,128 +1360,125 @@ class _BooksPageState extends State<BooksPage> {
           children: [
             const SizedBox(height: 16),
             Expanded(
-              child: _loadingCategories
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
-                  : (categories.isEmpty
-                      ? const Center(child: Text("Nema rezultata."))
-                      : ListView.builder(
-                          itemCount: categories.length,
-                          itemBuilder: (context, index) {
-                            final category = categories[index];
-                            return Card(
-                              margin: const EdgeInsets.symmetric(
-                                  vertical: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: ListTile(
-                                leading: const Icon(
-                                  Icons.category,
-                                  color: Color.fromARGB(
-                                      255, 181, 156, 74),
+              child:
+                  _loadingCategories
+                      ? const Center(child: CircularProgressIndicator())
+                      : (categories.isEmpty
+                          ? const Center(child: Text("Nema rezultata."))
+                          : ListView.builder(
+                            itemCount: categories.length,
+                            itemBuilder: (context, index) {
+                              final category = categories[index];
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                title: Text(
-                                  category['name'],
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                child: ListTile(
+                                  leading: const Icon(
+                                    Icons.category,
+                                    color: Color.fromARGB(255, 181, 156, 74),
+                                  ),
+                                  title: Text(
+                                    category['name'],
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  trailing: Wrap(
+                                    spacing: 12,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.edit,
+                                          color: Colors.blue,
+                                        ),
+                                        onPressed: () {
+                                          addCategory(
+                                            context,
+                                            () => _onCategoryFieldChanged(),
+                                            initialData: category,
+                                          );
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.delete,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () async {
+                                          final confirm = await showDialog<
+                                            bool
+                                          >(
+                                            context: context,
+                                            builder:
+                                                (_) => AlertDialog(
+                                                  title: const Text("Potvrda"),
+                                                  content: const Text(
+                                                    "Da li sigurno želiš obrisati kategoriju?",
+                                                  ),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                            false,
+                                                          ),
+                                                      child: const Text(
+                                                        "Otkaži",
+                                                      ),
+                                                    ),
+                                                    TextButton(
+                                                      onPressed:
+                                                          () => Navigator.pop(
+                                                            context,
+                                                            true,
+                                                          ),
+                                                      child: const Text(
+                                                        "Obriši",
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                          );
+                                          if (confirm == true) {
+                                            try {
+                                              await ApiService.deleteCategory(
+                                                category['id'],
+                                              );
+                                              _onCategoryFieldChanged();
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text(
+                                                    "Kategorija obrisana",
+                                                  ),
+                                                ),
+                                              );
+                                            } catch (e) {
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                SnackBar(
+                                                  content: Text(
+                                                    e.toString().replaceFirst(
+                                                      "Exception: ",
+                                                      "",
+                                                    ),
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          }
+                                        },
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                trailing: Wrap(
-                                  spacing: 12,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.edit,
-                                        color: Colors.blue,
-                                      ),
-                                      onPressed: () {
-                                        addCategory(
-                                          context,
-                                          () =>
-                                              _onCategoryFieldChanged(),
-                                          initialData: category,
-                                        );
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.delete,
-                                        color: Colors.red,
-                                      ),
-                                      onPressed: () async {
-                                        final confirm =
-                                            await showDialog<bool>(
-                                          context: context,
-                                          builder: (_) => AlertDialog(
-                                            title: const Text(
-                                              "Potvrda",
-                                            ),
-                                            content: const Text(
-                                              "Da li sigurno želiš obrisati kategoriju?",
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                        context, false),
-                                                child: const Text(
-                                                  "Otkaži",
-                                                ),
-                                              ),
-                                              TextButton(
-                                                onPressed: () =>
-                                                    Navigator.pop(
-                                                        context, true),
-                                                child: const Text(
-                                                  "Obriši",
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        if (confirm == true) {
-                                          try {
-                                            await ApiService
-                                                .deleteCategory(
-                                              category['id'],
-                                            );
-                                            _onCategoryFieldChanged();
-                                            ScaffoldMessenger.of(
-                                                    context)
-                                                .showSnackBar(
-                                              const SnackBar(
-                                                content: Text(
-                                                  "Kategorija obrisana",
-                                                ),
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            ScaffoldMessenger.of(
-                                                    context)
-                                                .showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  e
-                                                      .toString()
-                                                      .replaceFirst(
-                                                        "Exception: ",
-                                                        "",
-                                                      ),
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        )),
+                              );
+                            },
+                          )),
             ),
           ],
         );
@@ -1452,117 +1488,110 @@ class _BooksPageState extends State<BooksPage> {
           children: [
             const SizedBox(height: 16),
             Expanded(
-              child: reviews.isEmpty
-                  ? (_loadingReviews
-                      ? const Center(
-                          child: CircularProgressIndicator(),
-                        )
-                      : const Center(child: Text("Nema rezultata.")))
-                  : ListView.builder(
-                      itemCount: reviews.length,
-                      itemBuilder: (context, index) {
-                        final review = reviews[index];
-                        return Card(
-                          margin:
-                              const EdgeInsets.symmetric(vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListTile(
-                            leading: const Icon(
-                              Icons.rate_review,
-                              color:
-                                  Color.fromARGB(255, 181, 156, 74),
+              child:
+                  reviews.isEmpty
+                      ? (_loadingReviews
+                          ? const Center(child: CircularProgressIndicator())
+                          : const Center(child: Text("Nema rezultata.")))
+                      : ListView.builder(
+                        itemCount: reviews.length,
+                        itemBuilder: (context, index) {
+                          final review = reviews[index];
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            title: Text(
-                              "Ocjena: ${review.rating.toStringAsFixed(1)}",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                            child: ListTile(
+                              leading: const Icon(
+                                Icons.rate_review,
+                                color: Color.fromARGB(255, 181, 156, 74),
                               ),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                                if (review.userFullName != null)
-                                  Text(
-                                    "Korisnik: ${review.userFullName}",
-                                  ),
-                                if (review.bookTitle != null)
-                                  Text(
-                                    "Knjiga: ${review.bookTitle}",
-                                  ),
-                                Text(
-                                  "Datum: ${review.createdAt.toLocal().toString().split(' ')[0]}",
+                              title: Text(
+                                "Ocjena: ${review.rating.toStringAsFixed(1)}",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
                                 ),
-                              ],
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(
-                                Icons.delete,
-                                color: Colors.red,
                               ),
-                              onPressed: () async {
-                                final confirm =
-                                    await showDialog<bool>(
-                                  context: context,
-                                  builder: (_) => AlertDialog(
-                                    title: const Text("Potvrda"),
-                                    content: const Text(
-                                      "Da li sigurno želiš obrisati recenziju?",
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(
-                                                context, false),
-                                        child: const Text("Otkaži"),
-                                      ),
-                                      TextButton(
-                                        onPressed: () =>
-                                            Navigator.pop(
-                                                context, true),
-                                        child: const Text("Obriši"),
-                                      ),
-                                    ],
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (review.userFullName != null)
+                                    Text("Korisnik: ${review.userFullName}"),
+                                  if (review.bookTitle != null)
+                                    Text("Knjiga: ${review.bookTitle}"),
+
+                                  Text(
+                                    "Datum: ${formatShortDate(review.createdAt)}",
                                   ),
-                                );
-                                if (confirm == true) {
-                                  try {
-                                    await ApiService.deleteReview(
-                                      review.id,
-                                    );
-                                    _onReviewFieldChanged();
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          "Recenzija obrisana",
+                                ],
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder:
+                                        (_) => AlertDialog(
+                                          title: const Text("Potvrda"),
+                                          content: const Text(
+                                            "Da li sigurno želiš obrisati recenziju?",
+                                          ),
+                                          actions: [
+                                            TextButton(
+                                              onPressed:
+                                                  () => Navigator.pop(
+                                                    context,
+                                                    false,
+                                                  ),
+                                              child: const Text("Otkaži"),
+                                            ),
+                                            TextButton(
+                                              onPressed:
+                                                  () => Navigator.pop(
+                                                    context,
+                                                    true,
+                                                  ),
+                                              child: const Text("Obriši"),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    );
-                                  } catch (e) {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          e
-                                              .toString()
-                                              .replaceFirst(
-                                                "Exception: ",
-                                                "",
-                                              ),
+                                  );
+                                  if (confirm == true) {
+                                    try {
+                                      await ApiService.deleteReview(review.id);
+                                      _onReviewFieldChanged();
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text("Recenzija obrisana"),
                                         ),
-                                      ),
-                                    );
+                                      );
+                                    } catch (e) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            e.toString().replaceFirst(
+                                              "Exception: ",
+                                              "",
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }
                                   }
-                                }
-                              },
+                                },
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
             ),
           ],
         );
@@ -1581,50 +1610,39 @@ class _BooksPageState extends State<BooksPage> {
           if (label == "KORISNICI") {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (_) => const UserPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const UserPage()),
             );
           } else if (label == "KNJIGE") {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (_) => const BooksPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const BooksPage()),
             );
           } else if (label == "NARUDŽBE") {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (_) => const OrderPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const OrderPage()),
             );
           } else if (label == "FORUM") {
             Navigator.pushReplacement(
               context,
-              MaterialPageRoute(
-                builder: (_) => const ForumPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const ForumPage()),
             );
           }
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 8,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: isActive
-                ? const Color.fromARGB(255, 181, 156, 74)
-                : Colors.transparent,
+            color:
+                isActive
+                    ? const Color.fromARGB(255, 181, 156, 74)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
             label,
             style: TextStyle(
               fontSize: 16,
-              fontWeight:
-                  isActive ? FontWeight.bold : FontWeight.w500,
+              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
               color: isActive ? Colors.white : Colors.black87,
             ),
           ),

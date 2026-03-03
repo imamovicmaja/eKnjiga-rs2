@@ -29,7 +29,7 @@ String _extractDateForInput(dynamic value) {
 
 String _formatDateForDisplay(dynamic value) {
   final raw = _extractDateForInput(value);
-  if (raw.isEmpty) return '—';
+  if (raw.isEmpty) return '';
   final parts = raw.split('-');
   if (parts.length != 3) return raw;
 
@@ -40,6 +40,31 @@ String _formatDateForDisplay(dynamic value) {
 }
 
 String formatAuthorDate(dynamic value) => _formatDateForDisplay(value);
+
+DateTime? _tryParseAnyDateToDateTime(dynamic value) {
+  if (value == null) return null;
+
+  if (value is DateTime) return value;
+
+  final s = value.toString().trim();
+  if (s.isEmpty) return null;
+
+  if (s.contains('.')) {
+    final parts = s.split('.');
+    if (parts.length >= 3) {
+      final dd = int.tryParse(parts[0]);
+      final mm = int.tryParse(parts[1]);
+      final yyyy = int.tryParse(parts[2]);
+      if (dd != null && mm != null && yyyy != null) {
+        return DateTime(yyyy, mm, dd);
+      }
+    }
+  }
+
+  final raw = _extractDateForInput(s);
+  final parsed = DateTime.tryParse(raw);
+  return parsed;
+}
 
 String? _normalizeDateForApi(String input) {
   final t = input.trim();
@@ -55,7 +80,7 @@ String? _normalizeDateForApi(String input) {
     }
   }
 
-  return t; 
+  return t;
 }
 
 Widget _infoRow(String label, String value) {
@@ -215,12 +240,14 @@ void addAuthor(
   final lastNameController = TextEditingController(
     text: initialData?['lastName']?.toString() ?? '',
   );
+
   final birthDateController = TextEditingController(
-    text: _extractDateForInput(initialData?['birthDate']),
+    text: _formatDateForDisplay(initialData?['birthDate']),
   );
   final deathDateController = TextEditingController(
-    text: _extractDateForInput(initialData?['deathDate']),
+    text: _formatDateForDisplay(initialData?['deathDate']),
   );
+
   final descriptionController = TextEditingController(
     text: initialData?['description']?.toString() ?? '',
   );
@@ -284,14 +311,13 @@ void addAuthor(
                         icon: const Icon(Icons.calendar_today),
                         onPressed: () async {
                           final now = DateTime.now();
-                          final initial = _extractDateForInput(
-                                      initialData?['birthDate'])
-                                  .isNotEmpty
-                              ? DateTime.tryParse(
-                                      _extractDateForInput(
-                                          initialData?['birthDate'])) ??
-                                  now
-                              : now;
+
+                          final initial =
+                              _tryParseAnyDateToDateTime(initialData?['birthDate']) ??
+                                  _tryParseAnyDateToDateTime(
+                                      birthDateController.text) ??
+                                  now;
+
                           final picked = await showDatePicker(
                             context: context,
                             initialDate: initial,
@@ -300,7 +326,7 @@ void addAuthor(
                           );
                           if (picked != null) {
                             birthDateController.text =
-                                _extractDateForInput(picked);
+                                _formatDateForDisplay(picked);
                           }
                         },
                       ),
@@ -317,24 +343,23 @@ void addAuthor(
                         icon: const Icon(Icons.calendar_today),
                         onPressed: () async {
                           final now = DateTime.now();
-                          final initial = _extractDateForInput(
-                                      initialData?['deathDate'])
-                                  .isNotEmpty
-                              ? DateTime.tryParse(
-                                      _extractDateForInput(
-                                          initialData?['deathDate'])) ??
-                                  now
-                              : now;
+
+                          final initial =
+                              _tryParseAnyDateToDateTime(initialData?['deathDate']) ??
+                                  _tryParseAnyDateToDateTime(
+                                      deathDateController.text) ??
+                                  now;
+
                           final picked = await showDatePicker(
                             context: context,
                             initialDate: initial,
                             firstDate: DateTime(1700),
-                            lastDate: DateTime.now()
-                                .add(const Duration(days: 365)),
+                            lastDate:
+                                DateTime.now().add(const Duration(days: 365)),
                           );
                           if (picked != null) {
                             deathDateController.text =
-                                _extractDateForInput(picked);
+                                _formatDateForDisplay(picked);
                           }
                         },
                       ),
@@ -401,10 +426,9 @@ void addAuthor(
                   'lastName': lastNameController.text.trim(),
                   'birthDate': birthApi,
                   'deathDate': deathApi,
-                  'description':
-                      descriptionController.text.trim().isEmpty
-                          ? null
-                          : descriptionController.text.trim(),
+                  'description': descriptionController.text.trim().isEmpty
+                      ? null
+                      : descriptionController.text.trim(),
                   'bookIds': <int>[],
                 };
 
@@ -418,13 +442,11 @@ void addAuthor(
                       ),
                       actions: [
                         TextButton(
-                          onPressed: () =>
-                              Navigator.pop(context, false),
+                          onPressed: () => Navigator.pop(context, false),
                           child: const Text('Otkaži'),
                         ),
                         TextButton(
-                          onPressed: () =>
-                              Navigator.pop(context, true),
+                          onPressed: () => Navigator.pop(context, true),
                           child: const Text('Sačuvaj'),
                         ),
                       ],

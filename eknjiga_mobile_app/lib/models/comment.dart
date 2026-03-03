@@ -2,14 +2,16 @@ class User {
   final int id;
   final String firstName;
   final String lastName;
+  final String? profileImage;
 
-  User({required this.id, required this.firstName, required this.lastName});
+  User({required this.id, required this.firstName, required this.lastName, this.profileImage});
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
       id: json['id'] as int,
       firstName: json['firstName'],
       lastName: json['lastName'],
+      profileImage: json['profileImage'],
     );
   }
 }

@@ -12,30 +12,11 @@ services:
     networks:
       - eknjiga
 
-  eknjiga-api:
-    restart: unless-stopped
-    build:
-      context: .
-    environment:
-      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
-      - ASPNETCORE_ENVIRONMENT=Development
-      - Smtp__Host=eknjiga-mailhog
-      - Smtp__Port=1025
-      - Smtp__User=
-      - Smtp__Pass=
-      - Smtp__From=noreply@eknjiga.local
-    ports:
-      - 7114:80
-    networks:
-      - eknjiga
-    depends_on:
-      - eknjiga-sql
-
   eknjiga-rabbit:
     image: rabbitmq:3.13-management
     restart: unless-stopped
     ports:
-      - "5672:5672" 
+      - "5672:5672"
       - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
@@ -44,7 +25,7 @@ services:
       retries: 20
     networks:
       - eknjiga
-  
+
   eknjiga-mailhog:
     image: mailhog/mailhog
     ports:
@@ -52,6 +33,46 @@ services:
       - "1025:1025"
     networks:
       - eknjiga
+
+  eknjiga-api:
+    restart: unless-stopped
+    build:
+      context: .
+      target: webapi
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Smtp__Host=eknjiga-mailhog
+      - Smtp__Port=1025
+      - Smtp__User=
+      - Smtp__Pass=
+      - Smtp__From=noreply@eknjiga.local
+      - Rabbit__ConnectionString=amqp://guest:guest@eknjiga-rabbit:5672/
+    ports:
+      - 7114:80
+    networks:
+      - eknjiga
+    depends_on:
+      - eknjiga-sql
+      - eknjiga-rabbit
+
+  eknjiga-worker:
+    restart: unless-stopped
+    build:
+      context: .
+      target: worker
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Rabbit__ConnectionString=amqp://guest:guest@eknjiga-rabbit:5672/
+      - Smtp__Host=eknjiga-mailhog
+      - Smtp__Port=1025
+      - Smtp__From=noreply@eknjiga.local
+    networks:
+      - eknjiga
+    depends_on:
+      - eknjiga-sql
+      - eknjiga-rabbit
 
 networks:
   eknjiga:
