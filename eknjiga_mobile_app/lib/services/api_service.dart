@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiService {
   static const String _apiBase = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://localhost:7114/api',
+    defaultValue: 'http://10.0.2.2:7114/api',
   );
 
   static String _authHeader = '';

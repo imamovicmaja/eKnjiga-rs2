@@ -340,7 +340,6 @@ namespace eKnjiga.Services
     {
         dbOrder.PaypalCaptureId = captureId;
         dbOrder.PaymentStatus = PaymentStatus.Paid;
-        dbOrder.OrderStatus = OrderStatus.Completed;
         await _context.SaveChangesAsync(ct);
 
         _logger.LogInformation("DB UPDATED: Order marked as PAID");

@@ -6,6 +6,7 @@ using MapsterMapper;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.OpenApi.Models;
 using eKnjiga.Services.Messaging;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,7 +30,18 @@ builder.Services.AddTransient<ICommentReactionService, CommentReactionService>()
 builder.Services.AddTransient<IRecommendationService, RecommendationService>();
 
 builder.Services.AddTransient<IPaypalService, PaypalService>();
-builder.Services.AddHttpClient("paypal");
+builder.Services.AddHttpClient("paypal", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(300);
+    client.DefaultRequestHeaders.Accept.Add(
+        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+})
+.ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+{
+    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
+    PooledConnectionLifetime = TimeSpan.FromMinutes(30),
+    ConnectTimeout = TimeSpan.FromSeconds(60),
+});
 
 builder.Services.AddMapster();
 // Configure database

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:intl/intl.dart';
 
 import './../Home/home_page.dart';
 import './../BOOKS/books_page.dart';
@@ -638,7 +639,7 @@ class _MessagesPageState extends State<MessagesPage> {
               ),
               const Spacer(),
               Text(
-                "${comment.createdAt.toLocal()}".split(' ')[0],
+                DateFormat('dd.MM.yyyy').format(comment.createdAt.toLocal()),
                 style: const TextStyle(fontSize: 12, color: Colors.black),
               ),
 
@@ -762,7 +763,7 @@ class _MessagesPageState extends State<MessagesPage> {
               ),
                const Spacer(),
               Text(
-                "${reply.createdAt.toLocal()}".split(' ')[0],
+                DateFormat('dd.MM.yyyy').format(reply.createdAt.toLocal()),
                 style: const TextStyle(fontSize: 12, color: Colors.black),
               ),
 

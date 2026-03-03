@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'paypal_checkout_page.dart';
+import 'package:flutter_custom_tabs/flutter_custom_tabs.dart';
+import 'package:app_links/app_links.dart';
+import 'dart:async';
 
 import '../models/book.dart';
 import '../services/api_service.dart';
@@ -21,6 +23,12 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
   late List<_CheckoutItem> _items;
 
+  final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _linkSub;
+
+  String? _pendingPaypalOrderId;
+  List<_CheckoutItem> _pendingItemsSnapshot = [];
+
   @override
   void initState() {
     super.initState();
@@ -35,6 +43,68 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
 
     _items = temp;
+    _linkSub = _appLinks.uriLinkStream.listen((uri) async {
+      final url = uri.toString();
+
+      // ignore ako nije PayPal callback
+      final isReturn = url.startsWith(ApiService.paypalReturnUrlPrefix);
+      final isCancel = url.startsWith(ApiService.paypalCancelUrlPrefix);
+      if (!isReturn && !isCancel) return;
+
+      if (_pendingPaypalOrderId == null) return; // nema aktivnog checkouta
+
+      if (isCancel) {
+        _pendingPaypalOrderId = null;
+        if (!mounted) return;
+        setState(() => busy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Plaćanje je otkazano.')),
+        );
+        return;
+      }
+
+      if (isReturn) {
+        try {
+          final token = uri.queryParameters['token'];
+          if (token == null || token.isEmpty) {
+            throw Exception('PayPal token nije pronađen.');
+          }
+
+          await ApiService.paypalCaptureOrder(token);
+
+          // očisti korpu po snapshotu (da se qty ne promijeni dok je user na PayPal)
+          for (final item in _pendingItemsSnapshot) {
+            for (var i = 0; i < item.qty; i++) {
+              Cart.I.remove(item.book);
+            }
+          }
+
+          _pendingPaypalOrderId = null;
+          _pendingItemsSnapshot = [];
+
+          if (!mounted) return;
+          setState(() => busy = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Plaćanje uspješno završeno!')),
+          );
+          Navigator.pop(context, true);
+        } catch (e) {
+          _pendingPaypalOrderId = null;
+          _pendingItemsSnapshot = [];
+          if (!mounted) return;
+          setState(() => busy = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('PayPal greška: $e')),
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _linkSub?.cancel();
+    super.dispose();
   }
 
   double get total =>
@@ -354,51 +424,31 @@ class _CheckoutPageState extends State<CheckoutPage> {
                                     currency: 'EUR',
                                   );
 
-                                  // 3️⃣ Otvori PayPal WebView
-                                  final paid = await Navigator.push<bool>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PaypalCheckoutPage(
-                                        approveUrl: paypal.approveLink,
-                                        paypalOrderId: paypal.id,
-                                        returnUrlPrefix:
-                                            ApiService.paypalReturnUrlPrefix,
-                                        cancelUrlPrefix:
-                                            ApiService.paypalCancelUrlPrefix,
-                                      ),
+                                  _pendingItemsSnapshot = validItems
+                                      .map((x) => _CheckoutItem(book: x.book, qty: x.qty))
+                                      .toList();
+                                  _pendingPaypalOrderId = paypal.id;
+
+                                  // Otvori approve link
+                                  await launchUrl(
+                                    Uri.parse(paypal.approveLink),
+                                    customTabsOptions: const CustomTabsOptions(
+                                      shareState: CustomTabsShareState.off,
+                                      urlBarHidingEnabled: true,
+                                      showTitle: true,
                                     ),
-                                  );
-
-                                  // 4️⃣ Ako je plaćanje uspješno
-                                  if (paid == true) {
-                                    for (final item in validItems) {
-                                      for (var i = 0; i < item.qty; i++) {
-                                        Cart.I.remove(item.book);
-                                      }
-                                    }
-
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Plaćanje uspješno završeno!'),
-                                      ),
-                                    );
-                                    Navigator.pop(context, true);
-                                  } else {
-                                    if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Plaćanje je otkazano.'),
-                                      ),
-                                    );
-                                  }
+                                    safariVCOptions: const SafariViewControllerOptions(
+                                      barCollapsingEnabled: true,
+                                      dismissButtonStyle: SafariViewControllerDismissButtonStyle.close,
+                                    ),
+                                  );                                       
                                 } catch (e) {
                                   if (!mounted) return;
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('Greška: $e')),
                                   );
-                                } finally {
-                                  if (mounted) setState(() => busy = false);
+                                  _pendingPaypalOrderId = null;
+                                  _pendingItemsSnapshot = [];
                                 }
                               },
                         style: ElevatedButton.styleFrom(
