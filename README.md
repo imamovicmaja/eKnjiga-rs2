@@ -35,6 +35,10 @@ Zatim odabrati željeni uređaj ili pokreni direktno pomoću:
 - Korisničko ime: `admin`
 - Lozinka: `admin`
 
+*Desktop verzija, uposlenik:*
+- Korisničko ime: `erdin`
+- Lozinka: `user` 
+
 **Mobilna verzija:**
 - Korisničko ime: `user`
 - Lozinka: `user`
