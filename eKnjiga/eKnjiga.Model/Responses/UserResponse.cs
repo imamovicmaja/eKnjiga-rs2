@@ -14,9 +14,9 @@ namespace eKnjiga.Model.Responses
         public DateTime? BirthDate { get; set; }
         public string? Gender { get; set; }
         public DateTime CreatedAt { get; set; }
-        public byte[] ProfileImage { get; set; } = Array.Empty<byte>();
+        public string? ProfileImage { get; set; }
         public CityResponse? City { get; set; }
         public RoleResponse? Role { get; set; }
-        public ICollection<BookResponse> UserBooks { get; set; } = new List<BookResponse>();
+        public ICollection<UserBookResponse> UserBooks { get; set; } = new List<UserBookResponse>();
     }
 }

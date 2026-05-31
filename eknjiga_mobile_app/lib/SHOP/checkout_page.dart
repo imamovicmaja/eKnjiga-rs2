@@ -1,26 +1,44 @@
-import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:async';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_custom_tabs/flutter_custom_tabs.dart';
-import 'package:app_links/app_links.dart';
-import 'dart:async';
 
+import '../models/cart_item.dart';
 import '../models/book.dart';
 import '../services/api_service.dart';
+import '../widgets/book_image.dart';
 import '../HOME/cart.dart';
 
 class CheckoutPage extends StatefulWidget {
-  final List<Book> books;
+  final List<CartItem>? items;
+  final Book? book;
+  final bool? isPdfPurchase;
 
-  const CheckoutPage({super.key, required this.books});
+  const CheckoutPage.fromCart({
+    super.key,
+    required List<CartItem> items,
+  })  : items = items,
+        book = null,
+        isPdfPurchase = null;
+
+  const CheckoutPage.fromBook({
+    super.key,
+    required Book book,
+    required bool isPdfPurchase,
+  })  : items = null,
+        book = book,
+        isPdfPurchase = isPdfPurchase;
 
   @override
   State<CheckoutPage> createState() => _CheckoutPageState();
 }
 
 class _CheckoutPageState extends State<CheckoutPage> {
-  bool busy = false;
+  static const Color topColor = Color(0xFFD4D8F6);
+  static const Color midColor = Color(0xFF8D9EDB);
+  static const Color bottomColor = Color(0xFFB59C4A);
 
+  bool busy = false;
   late List<_CheckoutItem> _items;
 
   final _appLinks = AppLinks();
@@ -33,28 +51,48 @@ class _CheckoutPageState extends State<CheckoutPage> {
   void initState() {
     super.initState();
 
-    final allCartItems = Cart.I.items;
+    final List<CartItem> sourceItems = widget.items ??
+        [
+          CartItem(
+            bookId: widget.book!.id,
+            name: widget.book!.name,
+            authors: widget.book!.authors,
+            coverImage: widget.book!.coverImage,
+            price: widget.book!.price,
+            isPdfPurchase: widget.isPdfPurchase ?? false,
+            quantity: 1,
+          ),
+        ];
+
     final List<_CheckoutItem> temp = [];
 
-    for (final book in widget.books) {
-      final count = allCartItems.where((b) => b.id == book.id).length;
-      final qty = count == 0 ? 1 : count;
-      temp.add(_CheckoutItem(book: book, qty: qty));
+    for (final item in sourceItems) {
+      final existingIndex = temp.indexWhere(
+        (e) =>
+            e.item.bookId == item.bookId &&
+            e.item.isPdfPurchase == item.isPdfPurchase,
+      );
+
+      if (existingIndex >= 0) {
+        temp[existingIndex].qty += item.quantity;
+      } else {
+        temp.add(_CheckoutItem(item: item, qty: item.quantity));
+      }
     }
 
     _items = temp;
+
     _linkSub = _appLinks.uriLinkStream.listen((uri) async {
       final url = uri.toString();
 
-      // ignore ako nije PayPal callback
       final isReturn = url.startsWith(ApiService.paypalReturnUrlPrefix);
       final isCancel = url.startsWith(ApiService.paypalCancelUrlPrefix);
       if (!isReturn && !isCancel) return;
-
-      if (_pendingPaypalOrderId == null) return; // nema aktivnog checkouta
+      if (_pendingPaypalOrderId == null) return;
 
       if (isCancel) {
         _pendingPaypalOrderId = null;
+        _pendingItemsSnapshot = [];
         if (!mounted) return;
         setState(() => busy = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -72,10 +110,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
           await ApiService.paypalCaptureOrder(token);
 
-          // očisti korpu po snapshotu (da se qty ne promijeni dok je user na PayPal)
-          for (final item in _pendingItemsSnapshot) {
-            for (var i = 0; i < item.qty; i++) {
-              Cart.I.remove(item.book);
+          if (widget.items != null) {
+            for (final checkoutItem in _pendingItemsSnapshot) {
+              Cart.I.remove(checkoutItem.item);
             }
           }
 
@@ -84,9 +121,11 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
           if (!mounted) return;
           setState(() => busy = false);
+
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Plaćanje uspješno završeno!')),
           );
+
           Navigator.pop(context, true);
         } catch (e) {
           _pendingPaypalOrderId = null;
@@ -108,66 +147,153 @@ class _CheckoutPageState extends State<CheckoutPage> {
   }
 
   double get total =>
-      _items.fold(0, (sum, item) => sum + item.book.price * item.qty);
+      _items.fold(0, (sum, item) => sum + item.item.price * item.qty);
 
-  Future<void> _confirm({required int paymentStatus}) async {
-    final validItems = _items.where((i) => i.qty > 0).toList();
-    if (validItems.isEmpty) {
+  bool get hasPdf => _items.any((i) => i.item.isPdfPurchase);
+
+  String _price(double value) => '${value.toStringAsFixed(2)} KM';
+
+  String _formatDate(DateTime d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.day)}.${two(d.month)}.${d.year}.';
+  }
+
+  Future<void> _confirmCashOnDelivery() async {
+    if (hasPdf) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nema stavki za kupovinu.')),
+        const SnackBar(
+          content: Text('PDF knjige se mogu platiti samo online.'),
+        ),
+      );
+      return;
+    }
+
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Korpa je prazna.')),
       );
       return;
     }
 
     setState(() => busy = true);
+
     try {
       await ApiService.createOrder(
         type: 0,
         totalPrice: total,
-        paymentStatus: paymentStatus,
-        orderItems: validItems
+        paymentStatus: 0,
+        orderItems: _items
             .map(
               (i) => {
-                "bookId": i.book.id,
+                "bookId": i.item.bookId,
                 "quantity": i.qty,
-                "unitPrice": i.book.price,
+                "unitPrice": i.item.price,
+                "isPdfPurchase": i.item.isPdfPurchase,
               },
             )
             .toList(),
       );
 
-      for (final item in validItems) {
-        for (var i = 0; i < item.qty; i++) {
-          Cart.I.remove(item.book);
+      if (widget.items != null) {
+        for (final checkoutItem in _items) {
+          Cart.I.remove(checkoutItem.item);
         }
       }
 
       if (!mounted) return;
+      setState(() => busy = false);
+
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kupovina završena!')),
+        const SnackBar(content: Text('Narudžba uspješno evidentirana!')),
       );
+
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
+      setState(() => busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Greška: $e')),
       );
-    } finally {
-      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _confirmOnlinePayment() async {
+    if (_items.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Korpa je prazna.')),
+      );
+      return;
+    }
+
+    setState(() => busy = true);
+
+    try {
+      final orderId = await ApiService.createOrder(
+        type: 0,
+        totalPrice: total,
+        paymentStatus: 1,
+        orderItems: _items
+            .map(
+              (i) => {
+                "bookId": i.item.bookId,
+                "quantity": i.qty,
+                "unitPrice": i.item.price,
+                "isPdfPurchase": i.item.isPdfPurchase,
+              },
+            )
+            .toList(),
+      );
+
+      final paypal = await ApiService.paypalCreateOrder(
+        orderId: orderId,
+        amount: total,
+        currency: 'EUR',
+      );
+
+      _pendingItemsSnapshot =
+          _items.map((x) => _CheckoutItem(item: x.item, qty: x.qty)).toList();
+      _pendingPaypalOrderId = paypal.id;
+
+      await launchUrl(
+        Uri.parse(paypal.approveLink),
+        customTabsOptions: const CustomTabsOptions(
+          shareState: CustomTabsShareState.off,
+          urlBarHidingEnabled: true,
+          showTitle: true,
+        ),
+        safariVCOptions: const SafariViewControllerOptions(
+          barCollapsingEnabled: true,
+          dismissButtonStyle: SafariViewControllerDismissButtonStyle.close,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => busy = false);
+      _pendingPaypalOrderId = null;
+      _pendingItemsSnapshot = [];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Greška: $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    const topColor = Color.fromARGB(255, 212, 217, 246);
-    const midColor = Color.fromARGB(255, 141, 158, 219);
-    const bottomColor = Color.fromARGB(255, 181, 156, 74);
+    final expiry = DateTime.now().add(const Duration(days: 7));
+    final address = _items.isNotEmpty
+        ? _items.first.item.pickupAddress
+        : 'Poslovnica eKnjiga, Zmaja od Bosne 12, Sarajevo';
 
     return Scaffold(
+      backgroundColor: topColor,
       appBar: AppBar(
         backgroundColor: topColor,
         elevation: 0,
-        title: const Text('Potvrda kupovine'),
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text(
+          'Potvrda kupovine',
+          style: TextStyle(color: Colors.black),
+        ),
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -178,301 +304,100 @@ class _CheckoutPageState extends State<CheckoutPage> {
           ),
         ),
         child: SafeArea(
+          top: false,
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
             child: Column(
               children: [
                 Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
+                  child: _items.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Korpa je prazna.',
+                            style:
+                                TextStyle(fontSize: 16, color: Colors.black87),
+                          ),
+                        )
+                      : ListView(
+                          children:
+                              _items.map((e) => _checkoutItemCard(e)).toList(),
                         ),
-                      ],
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Ukupna cijena: ${_price(total)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: _items.isEmpty
-                        ? const Center(
-                            child: Text('Korpa je prazna.'),
+                  ),
+                ),
+                if (!hasPdf) ...[
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Rok za plaćanje / preuzimanje: ${_formatDate(expiry)}',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Adresa poslovnice: $address',
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: busy ? null : _confirmOnlinePayment,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF96A6DA),
+                      foregroundColor: Colors.black87,
+                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                    ),
+                    child: busy
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : ListView.separated(
-                            itemCount: _items.length,
-                            separatorBuilder: (_, __) =>
-                                const Divider(height: 20, thickness: 0.5),
-                            itemBuilder: (context, index) {
-                              final item = _items[index];
-                              final b = item.book;
-
-                              Uint8List? coverBytes;
-                              final b64 = b.coverImageBase64;
-                              if (b64 != null && b64.isNotEmpty) {
-                                try {
-                                  coverBytes =
-                                      base64Decode(b64.split(',').last);
-                                } catch (_) {}
-                              }
-
-                              return Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: coverBytes != null
-                                        ? Image.memory(
-                                            coverBytes,
-                                            width: 70,
-                                            height: 100,
-                                            fit: BoxFit.cover,
-                                          )
-                                        : Container(
-                                            width: 70,
-                                            height: 100,
-                                            color: Colors.white,
-                                            child: const Icon(
-                                              Icons.book,
-                                              size: 32,
-                                            ),
-                                          ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          b.name,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          b.authors.join(', '),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: Colors.black87,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Cijena: ${_price(b.price)}',
-                                          style: const TextStyle(fontSize: 13),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Row(
-                                          children: [
-                                            const Text('Količina:'),
-                                            const SizedBox(width: 8),
-                                            IconButton(
-                                              onPressed: () {
-                                                setState(() {
-                                                  if (item.qty > 1) {
-                                                    final oldQty = item.qty;
-                                                    item.qty--;
-                                                    final diff = oldQty - item.qty;
-                                                    for (var i = 0; i < diff; i++) {
-                                                      Cart.I.remove(item.book);
-                                                    }
-                                                  } else {
-                                                    Cart.I.remove(item.book);
-                                                    _items.removeAt(index);
-                                                  }
-                                                });
-                                              },
-                                              icon: const Icon(
-                                                Icons.remove_circle_outline,
-                                                size: 20,
-                                              ),
-                                            ),
-                                            Text(
-                                              item.qty.toString(),
-                                              style: const TextStyle(fontSize: 15),
-                                            ),
-                                            IconButton(
-                                              onPressed: () {
-                                                setState(() {
-                                                  final oldQty = item.qty;
-                                                  item.qty++;
-                                                  final diff = item.qty - oldQty;
-                                                  for (var i = 0; i < diff; i++) {
-                                                    Cart.I.add(item.book);
-                                                  }
-                                                });
-                                              },
-                                              icon: const Icon(
-                                                Icons.add_circle_outline,
-                                                size: 20,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              'Ukupno: ${_price(b.price * item.qty)}',
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ]
-                                        ),
-
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
+                        : const Text(
+                            'PLATI ONLINE',
+                            style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Ukupno za naplatu:',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      _price(total),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: busy || _items.isEmpty
-                            ? null
-                            : () => _confirm(paymentStatus: 0),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                if (!hasPdf) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: busy ? null : _confirmCashOnDelivery,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white.withOpacity(0.96),
+                        foregroundColor: Colors.black87,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
                         ),
-                        child: busy
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Plati prilikom preuzimanja'),
+                      ),
+                      child: const Text(
+                        'PLAĆANJE POUZEĆEM',
+                        style: TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: busy || _items.isEmpty
-                            ? null
-                            : () async {
-                                final validItems = _items.where((i) => i.qty > 0).toList();
-                                if (validItems.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Nema stavki za kupovinu.')),
-                                  );
-                                  return;
-                                }
-
-                                setState(() => busy = true);
-
-                                try {
-                                  // 1️⃣ Kreiraj ORDER u bazi (PaymentStatus = Pending / Online)
-                                  final orderId = await ApiService.createOrder(
-                                    type: 0,
-                                    totalPrice: total,
-                                    paymentStatus: 1, // online / pending
-                                    orderItems: validItems
-                                        .map((i) => {
-                                              "bookId": i.book.id,
-                                              "quantity": i.qty,
-                                              "unitPrice": i.book.price,
-                                            })
-                                        .toList(),
-                                  );
-
-                                  // 2️⃣ Kreiraj PayPal order (backend)
-                                  final paypal = await ApiService.paypalCreateOrder(
-                                    orderId: orderId,
-                                    amount: total,
-                                    currency: 'EUR',
-                                  );
-
-                                  _pendingItemsSnapshot = validItems
-                                      .map((x) => _CheckoutItem(book: x.book, qty: x.qty))
-                                      .toList();
-                                  _pendingPaypalOrderId = paypal.id;
-
-                                  // Otvori approve link
-                                  await launchUrl(
-                                    Uri.parse(paypal.approveLink),
-                                    customTabsOptions: const CustomTabsOptions(
-                                      shareState: CustomTabsShareState.off,
-                                      urlBarHidingEnabled: true,
-                                      showTitle: true,
-                                    ),
-                                    safariVCOptions: const SafariViewControllerOptions(
-                                      barCollapsingEnabled: true,
-                                      dismissButtonStyle: SafariViewControllerDismissButtonStyle.close,
-                                    ),
-                                  );                                       
-                                } catch (e) {
-                                  if (!mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Greška: $e')),
-                                  );
-                                  _pendingPaypalOrderId = null;
-                                  _pendingItemsSnapshot = [];
-                                }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: busy
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text('Online plaćanje'),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -481,13 +406,84 @@ class _CheckoutPageState extends State<CheckoutPage> {
     );
   }
 
-  String _price(double p) =>
-      p.toStringAsFixed(p.truncateToDouble() == p ? 0 : 2) + ' KM';
+  Widget _checkoutItemCard(_CheckoutItem entry) {
+    final ci = entry.item;
+    final imageUrl = ApiService.getImageUrl(ci.coverImage);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          (ci.coverImage != null && ci.coverImage!.isNotEmpty)
+              ? BookImage(
+                  url: imageUrl,
+                  width: 74,
+                  height: 102,
+                  borderRadius: 12,
+                )
+              : Container(
+                  width: 74,
+                  height: 102,
+                  color: Colors.grey.shade200,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.book),
+                ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ci.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15.5,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  ci.authors.join(', '),
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  ci.isPdfPurchase ? 'PDF' : 'Hard copy',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Količina: ${entry.qty}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  _price(ci.price * entry.qty),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _CheckoutItem {
-  final Book book;
+  final CartItem item;
   int qty;
 
-  _CheckoutItem({required this.book, required this.qty});
+  _CheckoutItem({required this.item, required this.qty});
 }

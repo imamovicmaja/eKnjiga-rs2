@@ -1,7 +1,9 @@
+using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.Tasks;
 
@@ -9,6 +11,7 @@ namespace eKnjiga.WebAPI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class CommentReactionController : ControllerBase
     {
         private readonly ICommentReactionService _commentReactionService;
@@ -19,6 +22,7 @@ namespace eKnjiga.WebAPI.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public async Task<PagedResult<CommentReactionResponse>> Get([FromQuery] CommentReactionSearchObject? search = null)
         {
             return await _commentReactionService.GetAsync(search ?? new CommentReactionSearchObject());
@@ -35,6 +39,7 @@ namespace eKnjiga.WebAPI.Controllers
         public async Task<IActionResult> RemoveReaction([FromBody] CommentReactionRequest request)
         {
             var success = await _commentReactionService.RemoveReactionAsync(request);
+
             if (success)
                 return Ok(new { message = "Reaction removed." });
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
-import '../KORISNICI/user_page.dart';
 
+import '../KORISNICI/user_page.dart';
+import '../NARUDZBE/order_page.dart';
 import '../services/api_service.dart';
 
 class LoginPage extends StatefulWidget {
@@ -11,43 +12,108 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
 
   String errorText = "";
+  bool isLoading = false;
 
-  void handleLogin() async {
+  String? _validateUsername(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return "Unesite korisničko ime.";
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return "Unesite šifru.";
+    }
+    return null;
+  }
+
+  Future<void> handleLogin() async {
+    FocusScope.of(context).unfocus();
+
+    final isValid = _formKey.currentState?.validate() ?? false;
+    if (!isValid) return;
+
     final username = usernameController.text.trim();
     final password = passwordController.text;
 
-    
-    /* Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const UserPage()),
-    ); */
+    setState(() {
+      isLoading = true;
+      errorText = "";
+    });
 
     try {
-      final fetched = await ApiService.login(username, password);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const UserPage()),
-      );
-    } catch (e) {
-      setState(() {
-        errorText = "Pogrešno korisničko ime ili šifra!";
-      });
-    }
+      await ApiService.login(username, password);
 
-    /* if (username == "admin" && password == "admin123") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const UserPage()),
-      );
-    } else {
+      if (!mounted) return;
+
+      if (ApiService.isEmployee) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const OrderPage()),
+        );
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const UserPage()),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
       setState(() {
-        errorText = "Pogrešno korisničko ime ili šifra!";
+        errorText = e.toString().replaceFirst("Exception: ", "");
       });
-    } */
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    usernameController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _inputDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 14,
+        vertical: 14,
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFFD0D0D0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.black54),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 1.2),
+      ),
+    );
   }
 
   @override
@@ -73,43 +139,74 @@ class _LoginPageState extends State<LoginPage> {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "eKnjiga",
-                  style: TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Georgia',
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "eKnjiga",
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Georgia',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: usernameController,
-                  decoration: const InputDecoration(
-                    labelText: "Korisničko ime",
+                  const SizedBox(height: 24),
+                  TextFormField(
+                    controller: usernameController,
+                    validator: _validateUsername,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    decoration: _inputDecoration("Korisničko ime"),
+                    textInputAction: TextInputAction.next,
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(labelText: "Šifra"),
-                ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: handleLogin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color.fromARGB(255, 181, 156, 74),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: passwordController,
+                    obscureText: true,
+                    validator: _validatePassword,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    decoration: _inputDecoration("Šifra"),
+                    onFieldSubmitted: (_) => handleLogin(),
                   ),
-                  child: const Text("Prijavi se"),
-                ),
-                const SizedBox(height: 12),
-                Text(errorText, style: const TextStyle(color: Colors.red)),
-              ],
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isLoading ? null : handleLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color.fromARGB(255, 181, 156, 74),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text("Prijavi se"),
+                    ),
+                  ),
+                  if (errorText.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      errorText,
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),

@@ -14,6 +14,5 @@ namespace eKnjiga.Model.Responses
 
         public string? Description { get; set; }
 
-        public List<BookResponse> Books { get; set; } = new List<BookResponse>();
     }
 }

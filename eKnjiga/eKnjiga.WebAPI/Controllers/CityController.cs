@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public class CityController : BaseCRUDController<CityResponse, CitySearchObject, CityUpsertRequest, CityUpsertRequest>
     {
         public CityController(ICityService service) : base(service)

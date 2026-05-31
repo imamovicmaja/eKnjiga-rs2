@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public class AuthorController : BaseCRUDController<AuthorResponse, AuthorSearchObject, AuthorUpsertRequest, AuthorUpsertRequest>
     {
         public AuthorController(IAuthorService service) : base(service)

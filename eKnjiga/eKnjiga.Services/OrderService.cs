@@ -1,20 +1,130 @@
+using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
 using MapsterMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Collections.Generic;
-using eKnjiga.Model.Enums;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Claims;
+using System.Threading.Tasks;
 
 namespace eKnjiga.Services
 {
     public class OrderService : BaseCRUDService<OrderResponse, OrderSearchObject, Database.Order, OrderUpsertRequest, OrderUpdateRequest>, IOrderService
     {
-        public OrderService(eKnjigaDbContext context, IMapper mapper) : base(context, mapper) {}
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public OrderService(
+            eKnjigaDbContext context,
+            IMapper mapper,
+            IHttpContextAccessor httpContextAccessor)
+            : base(context, mapper)
+        {
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        private int? GetCurrentUserId()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            var userIdClaim =
+                user?.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                user?.FindFirst("UserId")?.Value ??
+                user?.FindFirst("Id")?.Value;
+
+            if (int.TryParse(userIdClaim, out var userId))
+                return userId;
+
+            return null;
+        }
+
+        private bool IsAdmin()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            if (user == null)
+                return false;
+
+            return user.IsInRole("Admin") ||
+                   user.Claims.Any(c =>
+                       (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
+                       c.Value == "Admin");
+        }
+
+        private bool IsEmployee()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            if (user == null)
+                return false;
+
+            return user.IsInRole("Employee") ||
+                   user.Claims.Any(c =>
+                       (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
+                       c.Value == "Employee");
+        }
+
+        private bool IsStaff()
+        {
+            return IsAdmin() || IsEmployee();
+        }
+
+        private void EnsureUserAuthenticated()
+        {
+            if (!GetCurrentUserId().HasValue)
+                throw new UnauthorizedAccessException("User is not authenticated.");
+        }
+
+        private void EnsureCanAccessOrder(Database.Order order)
+        {
+            if (IsStaff())
+                return;
+
+            var currentUserId = GetCurrentUserId();
+
+            if (!currentUserId.HasValue)
+                throw new UnauthorizedAccessException("User is not authenticated.");
+
+            if (order.UserId != currentUserId.Value)
+                throw new UnauthorizedAccessException("You are not allowed to access this order.");
+        }
+
+        private async Task ValidatePdfPurchaseAsync(OrderUpsertRequest request, int userId)
+        {
+            var pdfBookIds = request.OrderItems
+                .Where(x => x.IsPdfPurchase)
+                .Select(x => x.BookId)
+                .Distinct()
+                .ToList();
+
+            if (!pdfBookIds.Any())
+                return;
+
+            var alreadyOwnedBooks = await _context.UserBooks
+                .Where(ub => ub.UserId == userId && pdfBookIds.Contains(ub.BookId))
+                .Select(ub => ub.BookId)
+                .ToListAsync();
+
+            if (alreadyOwnedBooks.Any())
+            {
+                throw new InvalidOperationException("Već ste kupili PDF verziju ove knjige.");
+            }
+
+            var duplicatePdfInRequest = request.OrderItems
+                .Where(x => x.IsPdfPurchase)
+                .GroupBy(x => x.BookId)
+                .Any(g => g.Count() > 1);
+
+            if (duplicatePdfInRequest)
+            {
+                throw new InvalidOperationException("Ista PDF knjiga je dodana više puta u narudžbu.");
+            }
+        }
 
         protected override IQueryable<Order> ApplyFilter(IQueryable<Order> query, OrderSearchObject search)
         {
@@ -44,11 +154,45 @@ namespace eKnjiga.Services
                         .ThenInclude(cc => cc.Country)
                 .Include(o => o.User)
                     .ThenInclude(ur => ur.Role)
-                .Include(o => o.OrderItems).ThenInclude(oi => oi.Book).ThenInclude(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .Include(o => o.OrderItems).ThenInclude(oi => oi.Book).ThenInclude(b => b.BookCategories).ThenInclude(bc => bc.Category)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Book)
+                        .ThenInclude(b => b.BookAuthors)
+                            .ThenInclude(ba => ba.Author)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Book)
+                        .ThenInclude(b => b.BookCategories)
+                            .ThenInclude(bc => bc.Category)
                 .AsQueryable();
 
-            query = ApplyFilter(query, search);
+            if (IsStaff())
+            {
+                query = ApplyFilter(query, search);
+            }
+            else
+            {
+                var currentUserId = GetCurrentUserId();
+
+                if (!currentUserId.HasValue)
+                    throw new UnauthorizedAccessException("User is not authenticated.");
+
+                query = query.Where(o => o.UserId == currentUserId.Value);
+
+                var safeSearch = new OrderSearchObject
+                {
+                    TotalPrice = search.TotalPrice,
+                    OrderStatus = search.OrderStatus,
+                    PaymentStatus = search.PaymentStatus,
+                    Type = search.Type,
+                    OrderBy = search.OrderBy,
+                    IsDescending = search.IsDescending,
+                    IncludeTotalCount = search.IncludeTotalCount,
+                    RetrieveAll = search.RetrieveAll,
+                    Page = search.Page,
+                    PageSize = search.PageSize
+                };
+
+                query = ApplyFilter(query, safeSearch);
+            }
 
             var desc = search.IsDescending ?? true;
 
@@ -96,6 +240,7 @@ namespace eKnjiga.Services
                 {
                     query = query.Skip(search.Page.Value * search.PageSize.Value);
                 }
+
                 if (search.PageSize.HasValue)
                 {
                     query = query.Take(search.PageSize.Value);
@@ -103,6 +248,7 @@ namespace eKnjiga.Services
             }
 
             var list = await query.ToListAsync();
+
             return new PagedResult<OrderResponse>
             {
                 Items = list.Select(MapToResponse).ToList(),
@@ -118,21 +264,45 @@ namespace eKnjiga.Services
                         .ThenInclude(cc => cc.Country)
                 .Include(o => o.User)
                     .ThenInclude(ur => ur.Role)
-                .Include(o => o.OrderItems).ThenInclude(oi => oi.Book).ThenInclude(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .Include(o => o.OrderItems).ThenInclude(oi => oi.Book).ThenInclude(b => b.BookCategories).ThenInclude(bc => bc.Category)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Book)
+                        .ThenInclude(b => b.BookAuthors)
+                            .ThenInclude(ba => ba.Author)
+                .Include(o => o.OrderItems)
+                    .ThenInclude(oi => oi.Book)
+                        .ThenInclude(b => b.BookCategories)
+                            .ThenInclude(bc => bc.Category)
                 .FirstOrDefaultAsync(o => o.Id == id);
 
-            return order != null ? MapToResponse(order) : null;
+            if (order == null)
+                throw new KeyNotFoundException("Order not found.");
+
+            EnsureCanAccessOrder(order);
+
+            return MapToResponse(order);
         }
 
         protected override async Task BeforeInsert(Order entity, OrderUpsertRequest request)
         {
+            if (!IsStaff())
+            {
+                var currentUserId = GetCurrentUserId();
+
+                if (!currentUserId.HasValue)
+                    throw new UnauthorizedAccessException("User is not authenticated.");
+
+                request.UserId = currentUserId.Value;
+            }
+
             entity.OrderItems = request.OrderItems.Select(item => new OrderItem
             {
                 BookId = item.BookId,
                 Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice
+                UnitPrice = item.UnitPrice,
+                IsPdfPurchase = item.IsPdfPurchase
             }).ToList();
+
+            await Task.CompletedTask;
         }
 
         private OrderResponse MapToResponse(Database.Order order)
@@ -146,6 +316,7 @@ namespace eKnjiga.Services
                 PaymentStatus = order.PaymentStatus,
                 Type = order.Type,
                 CreatedAt = order.CreatedAt,
+                ExpiresAt = order.ExpiresAt,
 
                 User = order.User != null ? new UserResponse
                 {
@@ -182,6 +353,7 @@ namespace eKnjiga.Services
                     Id = oi.Id,
                     Quantity = oi.Quantity,
                     UnitPrice = oi.UnitPrice,
+                    IsPdfPurchase = oi.IsPdfPurchase,
                     Book = oi.Book != null ? new BookResponse
                     {
                         Id = oi.Book.Id,
@@ -209,21 +381,47 @@ namespace eKnjiga.Services
 
         public override async Task<OrderResponse> CreateAsync(OrderUpsertRequest request)
         {
+            EnsureUserAuthenticated();
+
+            if (!IsStaff())
+            {
+                var currentUserId = GetCurrentUserId()!.Value;
+                request.UserId = currentUserId;
+            }
+
+            await ValidatePdfPurchaseAsync(request, request.UserId);
+
             var entity = new Order();
             MapInsertToEntity(entity, request);
+
+            entity.CreatedAt = DateTime.UtcNow;
+
+            if (entity.Type == OrderType.Purchase)
+            {
+                entity.ExpiresAt = DateTime.UtcNow.AddDays(7);
+            }
+            else if (entity.Type == OrderType.Reservation)
+            {
+                entity.ExpiresAt = DateTime.UtcNow.AddDays(2);
+            }
 
             entity.OrderItems = request.OrderItems.Select(item => new OrderItem
             {
                 BookId = item.BookId,
                 Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice
+                UnitPrice = item.UnitPrice,
+                IsPdfPurchase = item.IsPdfPurchase
             }).ToList();
 
             _context.Orders.Add(entity);
 
-            if (entity.OrderStatus == OrderStatus.Completed)
+            if (entity.OrderStatus == OrderStatus.Completed && entity.Type == OrderType.Purchase)
             {
-                var bookIds = entity.OrderItems.Select(oi => oi.BookId).Distinct().ToList();
+                var bookIds = entity.OrderItems
+                    .Where(oi => oi.IsPdfPurchase)
+                    .Select(oi => oi.BookId)
+                    .Distinct()
+                    .ToList();
 
                 var existing = await _context.UserBooks
                     .Where(ub => ub.UserId == entity.UserId && bookIds.Contains(ub.BookId))
@@ -231,8 +429,15 @@ namespace eKnjiga.Services
                     .ToListAsync();
 
                 var toAdd = bookIds.Except(existing);
+
                 foreach (var bookId in toAdd)
-                    _context.UserBooks.Add(new UserBook { UserId = entity.UserId, BookId = bookId });
+                {
+                    _context.UserBooks.Add(new UserBook
+                    {
+                        UserId = entity.UserId,
+                        BookId = bookId
+                    });
+                }
             }
 
             await _context.SaveChangesAsync();
@@ -243,23 +448,34 @@ namespace eKnjiga.Services
 
         public override async Task<OrderResponse?> UpdateAsync(int id, OrderUpdateRequest request)
         {
+            EnsureUserAuthenticated();
+
             var entity = await _context.Orders.FindAsync(id);
             if (entity == null)
-                return null;
+                throw new KeyNotFoundException("Order not found.");
+
+            EnsureCanAccessOrder(entity);
 
             await _context.Entry(entity).Collection(e => e.OrderItems).LoadAsync();
 
             var wasCompleted = entity.OrderStatus == OrderStatus.Completed;
 
+            var oldPaymentStatus = entity.PaymentStatus;
             await BeforeUpdate(entity, request);
-
             MapUpdateToEntity(entity, request);
+            entity.PaymentStatus = oldPaymentStatus;
 
             await _context.SaveChangesAsync();
 
-            if (!wasCompleted && entity.OrderStatus == OrderStatus.Completed)
+            if (!wasCompleted &&
+                entity.OrderStatus == OrderStatus.Completed &&
+                entity.Type == OrderType.Purchase)
             {
-                var bookIds = entity.OrderItems.Select(oi => oi.BookId).Distinct().ToList();
+                var bookIds = entity.OrderItems
+                    .Where(oi => oi.IsPdfPurchase)
+                    .Select(oi => oi.BookId)
+                    .Distinct()
+                    .ToList();
 
                 var existing = await _context.UserBooks
                     .Where(ub => ub.UserId == entity.UserId && bookIds.Contains(ub.BookId))
@@ -267,15 +483,68 @@ namespace eKnjiga.Services
                     .ToListAsync();
 
                 var toAdd = bookIds.Except(existing);
-                foreach (var bookId in toAdd)
-                    _context.UserBooks.Add(new UserBook { UserId = entity.UserId, BookId = bookId });
 
-                await _context.SaveChangesAsync();
+                foreach (var bookId in toAdd)
+                {
+                    _context.UserBooks.Add(new UserBook
+                    {
+                        UserId = entity.UserId,
+                        BookId = bookId
+                    });
+                }
             }
+
+            await _context.SaveChangesAsync();
 
             var full = await GetByIdAsync(entity.Id);
             return full ?? MapToResponse(entity);
         }
 
+        public override async Task<bool> DeleteAsync(int id)
+        {
+            EnsureUserAuthenticated();
+
+            var entity = await _context.Orders.FindAsync(id);
+            if (entity == null)
+                throw new KeyNotFoundException("Order not found.");
+
+            EnsureCanAccessOrder(entity);
+
+            _context.Orders.Remove(entity);
+            await _context.SaveChangesAsync();
+
+            return true;
+        }
+
+        public async Task<OrderResponse?> CancelAsync(int id)
+        {
+            EnsureUserAuthenticated();
+
+            var entity = await _context.Orders
+                .Include(o => o.OrderItems)
+                .Include(o => o.User)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
+            if (entity == null)
+                throw new KeyNotFoundException("Order not found.");
+
+            EnsureCanAccessOrder(entity);
+
+            if (entity.OrderStatus == OrderStatus.Completed)
+                throw new InvalidOperationException("Završena narudžba se ne može otkazati.");
+
+            if (entity.OrderStatus == OrderStatus.Cancelled)
+                throw new InvalidOperationException("Narudžba je već otkazana.");
+
+            // zabraniti otkazivanje online plaćenih narudžbi
+            if (entity.PaymentStatus == PaymentStatus.Paid)
+                throw new InvalidOperationException("Online plaćene narudžbe nije moguće otkazati putem aplikacije.");
+
+            entity.OrderStatus = OrderStatus.Cancelled;
+
+            await _context.SaveChangesAsync();
+
+            return await GetByIdAsync(id);
+        }
     }
 }

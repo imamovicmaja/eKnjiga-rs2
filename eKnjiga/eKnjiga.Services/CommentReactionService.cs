@@ -1,18 +1,70 @@
+using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using System.Linq;
+using System;
+using System.Security.Claims;
+using System.Threading.Tasks;
 
 namespace eKnjiga.Services
 {
     public class CommentReactionService : ICommentReactionService
     {
         private readonly eKnjigaDbContext _context;
+        private readonly IHttpContextAccessor _httpContextAccessor;
 
-        public CommentReactionService(eKnjigaDbContext context)
+        public CommentReactionService(eKnjigaDbContext context, IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        private int? GetCurrentUserId()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            var userIdClaim =
+                user?.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                user?.FindFirst("UserId")?.Value ??
+                user?.FindFirst("Id")?.Value;
+
+            if (int.TryParse(userIdClaim, out var userId))
+                return userId;
+
+            return null;
+        }
+
+        private bool IsAdmin()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            if (user == null)
+                return false;
+
+            return user.IsInRole("Admin") ||
+                   user.Claims.Any(c =>
+                       (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
+                       c.Value == "Admin");
+        }
+
+        private void EnsureUserAuthenticated()
+        {
+            if (!GetCurrentUserId().HasValue)
+                throw new UnauthorizedAccessException("User is not authenticated.");
+        }
+
+        private int ResolveUserId(int requestUserId)
+        {
+            EnsureUserAuthenticated();
+
+            if (IsAdmin())
+                return requestUserId;
+
+            return GetCurrentUserId()!.Value;
         }
 
         public async Task<PagedResult<CommentReactionResponse>> GetAsync(CommentReactionSearchObject search)
@@ -29,11 +81,13 @@ namespace eKnjiga.Services
             {
                 if (search.Page.HasValue)
                     query = query.Skip(search.Page.Value * search.PageSize.Value);
+
                 if (search.PageSize.HasValue)
                     query = query.Take(search.PageSize.Value);
             }
 
             var list = await query.ToListAsync();
+
             return new PagedResult<CommentReactionResponse>
             {
                 Items = list.Select(MapToResponse).ToList(),
@@ -43,15 +97,19 @@ namespace eKnjiga.Services
 
         public async Task<CommentReactionResponse> CreateOrUpdateReactionAsync(CommentReactionRequest request)
         {
+            EnsureUserAuthenticated();
+
             if ((request.CommentId == null && request.CommentAnswerId == null) ||
                 (request.CommentId != null && request.CommentAnswerId != null))
             {
                 throw new ArgumentException("Potrebno je navesti tačno jedan od CommentId ili CommentAnswerId.");
             }
 
+            var resolvedUserId = ResolveUserId(request.UserId);
+
             var existing = await _context.CommentReactions
                 .FirstOrDefaultAsync(r =>
-                    r.UserId == request.UserId &&
+                    r.UserId == resolvedUserId &&
                     r.CommentId == request.CommentId &&
                     r.CommentAnswerId == request.CommentAnswerId);
 
@@ -62,6 +120,9 @@ namespace eKnjiga.Services
 
                 return new CommentReactionResponse
                 {
+                    UserId = resolvedUserId,
+                    CommentId = request.CommentId,
+                    CommentAnswerId = request.CommentAnswerId,
                     IsUpdated = true,
                     IsLike = request.IsLike
                 };
@@ -70,7 +131,7 @@ namespace eKnjiga.Services
             {
                 var newReaction = new CommentReaction
                 {
-                    UserId = request.UserId,
+                    UserId = resolvedUserId,
                     CommentId = request.CommentId,
                     CommentAnswerId = request.CommentAnswerId,
                     IsLike = request.IsLike
@@ -81,6 +142,9 @@ namespace eKnjiga.Services
 
                 return new CommentReactionResponse
                 {
+                    UserId = resolvedUserId,
+                    CommentId = request.CommentId,
+                    CommentAnswerId = request.CommentAnswerId,
                     IsUpdated = false,
                     IsLike = request.IsLike
                 };
@@ -89,15 +153,19 @@ namespace eKnjiga.Services
 
         public async Task<bool> RemoveReactionAsync(CommentReactionRequest request)
         {
+            EnsureUserAuthenticated();
+
             if ((request.CommentId == null && request.CommentAnswerId == null) ||
                 (request.CommentId != null && request.CommentAnswerId != null))
             {
                 throw new ArgumentException("Potrebno je navesti tačno jedan od CommentId ili CommentAnswerId.");
             }
 
+            var resolvedUserId = ResolveUserId(request.UserId);
+
             var existing = await _context.CommentReactions
                 .FirstOrDefaultAsync(r =>
-                    r.UserId == request.UserId &&
+                    r.UserId == resolvedUserId &&
                     r.CommentId == request.CommentId &&
                     r.CommentAnswerId == request.CommentAnswerId);
 
@@ -114,7 +182,7 @@ namespace eKnjiga.Services
         protected IQueryable<CommentReaction> ApplyFilter(IQueryable<CommentReaction> query, CommentReactionSearchObject search)
         {
             if (search.UserId.HasValue)
-                query = query.Where(b => b.UserId == search.UserId.Value);
+                query = query.Where(r => r.UserId == search.UserId.Value);
 
             return query;
         }
@@ -130,6 +198,5 @@ namespace eKnjiga.Services
                 IsLike = reaction.IsLike
             };
         }
-
     }
 }

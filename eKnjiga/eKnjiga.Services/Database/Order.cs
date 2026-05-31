@@ -22,6 +22,7 @@ namespace eKnjiga.Services.Database
         public OrderType Type { get; set; } = OrderType.Purchase;
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? ExpiresAt { get; set; }
 
         [MaxLength(128)]
         public string? PaypalOrderId { get; set; }

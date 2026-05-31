@@ -1,12 +1,7 @@
 import 'dart:typed_data';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:open_file/open_file.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../models/author.dart';
 import '../models/category.dart';
@@ -19,392 +14,496 @@ void addBook(
   Map<String, dynamic>? initialData,
 }) {
   final nameController =
-      TextEditingController(text: initialData?['name'] ?? '');
+      TextEditingController(text: initialData?['name']?.toString() ?? '');
   final descriptionController =
-      TextEditingController(text: initialData?['description'] ?? '');
+      TextEditingController(text: initialData?['description']?.toString() ?? '');
   final priceController = TextEditingController(
     text: initialData?['price']?.toString() ?? '',
   );
 
+  final List<int> selectedAuthorIds =
+      List<int>.from(initialData?['authorIds'] ?? []);
+  final List<int> selectedCategoryIds =
+      List<int>.from(initialData?['categoryIds'] ?? []);
+
   List<Author> availableAuthors = [];
   List<Category> availableCategories = [];
 
-  List<int> selectedAuthorIds =
-      List<int>.from(initialData?['authorIds'] ?? []);
-  List<int> selectedCategoryIds =
-      List<int>.from(initialData?['categoryIds'] ?? []);
+  Uint8List? selectedCoverBytes;
+  Uint8List? selectedPdfBytes;
 
-  Uint8List? coverImage = initialData?['coverImage'] != null
-      ? base64Decode(initialData!['coverImage'])
-      : null;
+  String? selectedCoverFileName;
+  String? selectedPdfFileName;
 
-  Uint8List? pdfFile;
+  String? nameError;
+  String? priceError;
+  String? authorError;
+  String? categoryError;
 
-  String? nameError, priceError, authorError, categoryError;
-
-  final bool hadCoverInitially = initialData?['coverImage'] != null;
-  final bool hadPdfInitially = initialData?['pdfFile'] != null;
-
-  Future<void> openPdfFromBase64(BuildContext ctx, String base64Pdf) async {
-
-    final bytes = base64Decode(base64Pdf);
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/knjiga.pdf');
-    await file.writeAsBytes(bytes);
-    await OpenFile.open(file.path);
-  }
+  final String? existingCoverPath = _readInitialCoverPath(initialData);
+  final bool hadPdfInitially =
+      initialData?['pdfFile'] != null ||
+      initialData?['pdfPath'] != null ||
+      initialData?['pdfUrl'] != null;
 
   showDialog(
     context: context,
     builder: (_) {
       return StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: Row(
-            children: const [
-              Icon(
-                Icons.menu_book,
-                color: Color.fromARGB(255, 181, 156, 74),
-                size: 30,
-              ),
-              SizedBox(width: 8),
-              Text(
-                "Knjiga",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          content: SizedBox(
-            width: 500,
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [              
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(
-                      labelText: "Naziv",
-                      errorText: nameError,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: descriptionController,
-                    decoration: const InputDecoration(labelText: "Opis"),
-                    maxLines: 3,
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: priceController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: "Cijena",
-                      errorText: priceError,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+        builder: (context, setState) {
+          Future<void> pickCoverImage() async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.image,
+              withData: true,
+            );
 
-                  FutureBuilder<List<Author>>(
-                    future: ApiService.fetchAuthors(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const CircularProgressIndicator();
-                      }
+            if (result == null || result.files.isEmpty) return;
 
-                      availableAuthors = snapshot.data!;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Autori",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          Wrap(
-                            children: availableAuthors.map((author) {
-                              final isSelected =
-                                  selectedAuthorIds.contains(author.id);
-                              return FilterChip(
-                                label: Text(
-                                  "${author.firstName} ${author.lastName}",
-                                ),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  setState(() {
-                                    isSelected
-                                        ? selectedAuthorIds.remove(author.id)
-                                        : selectedAuthorIds.add(author.id);
-                                  });
-                                },
-                              );
-                            }).toList(),
-                          ),
-                          if (authorError != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
+            final file = result.files.first;
+            if (file.bytes == null) {
+              errorDialog(context, 'Slika nije učitana. Pokušaj ponovo.');
+              return;
+            }
+
+            setState(() {
+              selectedCoverBytes = file.bytes;
+              selectedCoverFileName = file.name;
+            });
+          }
+
+          Future<void> pickPdfFile() async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['pdf'],
+              withData: true,
+            );
+
+            if (result == null || result.files.isEmpty) return;
+
+            final file = result.files.first;
+            if (file.bytes == null) {
+              errorDialog(context, 'PDF nije učitan. Pokušaj ponovo.');
+              return;
+            }
+
+            setState(() {
+              selectedPdfBytes = file.bytes;
+              selectedPdfFileName = file.name;
+            });
+          }
+
+          Future<void> saveBook() async {
+            setState(() {
+              nameError = null;
+              priceError = null;
+              authorError = null;
+              categoryError = null;
+            });
+
+            bool hasError = false;
+
+            final name = nameController.text.trim();
+            final description = descriptionController.text.trim();
+            final price = double.tryParse(
+              priceController.text.trim().replaceAll(',', '.'),
+            );
+
+            if (name.length < 3) {
+              nameError = 'Naziv mora imati barem 3 karaktera.';
+              hasError = true;
+            }
+
+            if (price == null || price <= 0) {
+              priceError = 'Unesite validnu cijenu.';
+              hasError = true;
+            }
+
+            if (selectedAuthorIds.isEmpty) {
+              authorError = 'Odaberite najmanje jednog autora.';
+              hasError = true;
+            }
+
+            if (selectedCategoryIds.isEmpty) {
+              categoryError = 'Odaberite najmanje jednu kategoriju.';
+              hasError = true;
+            }
+
+            if (hasError) {
+              setState(() {});
+              return;
+            }
+
+            final bookData = <String, dynamic>{
+              'name': name,
+              'description': description,
+              'price': price,
+              'authorIds': selectedAuthorIds,
+              'categoryIds': selectedCategoryIds,
+            };
+
+            try {
+              int bookId;
+
+              if (initialData == null) {
+                final createdBook = await ApiService.createBook(bookData);
+
+                if (createdBook['id'] != null) {
+                  bookId = int.parse(createdBook['id'].toString());
+                } else {
+                  throw Exception(
+                    'Knjiga je kreirana, ali ID nije vraćen iz API-ja.',
+                  );
+                }
+              } else {
+                bookId = int.parse(initialData['id'].toString());
+
+                await ApiService.updateBook(
+                  bookId,
+                  {
+                    'id': bookId,
+                    ...bookData,
+                  },
+                );
+              }
+
+              if (selectedCoverBytes != null && selectedCoverFileName != null) {
+                await ApiService.uploadBookCover(
+                  bookId,
+                  selectedCoverBytes!,
+                  selectedCoverFileName!,
+                );
+              }
+
+              if (selectedPdfBytes != null && selectedPdfFileName != null) {
+                await ApiService.uploadBookPdf(
+                  bookId,
+                  selectedPdfBytes!,
+                  selectedPdfFileName!,
+                );
+              }
+
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              refreshBooks();
+            } catch (e) {
+              if (!context.mounted) return;
+              errorDialog(
+                context,
+                e.toString().replaceFirst('Exception: ', ''),
+              );
+            }
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            title: Row(
+              children: const [
+                Icon(
+                  Icons.menu_book,
+                  color: Color.fromARGB(255, 181, 156, 74),
+                  size: 30,
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Knjiga',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(
+                        labelText: 'Naziv',
+                        errorText: nameError,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: descriptionController,
+                      decoration: const InputDecoration(labelText: 'Opis'),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: priceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Cijena',
+                        errorText: priceError,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    FutureBuilder<List<Author>>(
+                      future: ApiService.fetchAuthors(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        }
+
+                        if (snapshot.hasError) {
+                          return const Text(
+                            'Greška pri učitavanju autora.',
+                            style: TextStyle(color: Colors.red),
+                          );
+                        }
+
+                        availableAuthors = snapshot.data ?? [];
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Autori',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: availableAuthors.map((author) {
+                                final isSelected =
+                                    selectedAuthorIds.contains(author.id);
+
+                                return FilterChip(
+                                  label: Text(
+                                    '${author.firstName} ${author.lastName}',
+                                  ),
+                                  selected: isSelected,
+                                  onSelected: (_) {
+                                    setState(() {
+                                      if (isSelected) {
+                                        selectedAuthorIds.remove(author.id);
+                                      } else {
+                                        selectedAuthorIds.add(author.id);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            if (authorError != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
                                 authorError!,
                                 style: const TextStyle(
                                   color: Colors.red,
                                   fontSize: 12,
                                 ),
                               ),
+                            ],
+                          ],
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    FutureBuilder<List<Category>>(
+                      future: ApiService.fetchCategories(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: CircularProgressIndicator(),
                             ),
-                        ],
-                      );
-                    },
-                  ),
+                          );
+                        }
 
-                  const SizedBox(height: 16),
+                        if (snapshot.hasError) {
+                          return const Text(
+                            'Greška pri učitavanju kategorija.',
+                            style: TextStyle(color: Colors.red),
+                          );
+                        }
 
-                  FutureBuilder<List<Category>>(
-                    future: ApiService.fetchCategories(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const CircularProgressIndicator();
-                      }
+                        availableCategories = snapshot.data ?? [];
 
-                      availableCategories = snapshot.data!;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Kategorije",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          Wrap(
-                            children: availableCategories
-                                .map((Category cat) {
-                                  final isSelected =
-                                      selectedCategoryIds.contains(cat.id);
-                                  return FilterChip(
-                                    label: Text(cat.name),
-                                    selected: isSelected,
-                                    onSelected: (selected) {
-                                      setState(() {
-                                        isSelected
-                                            ? selectedCategoryIds
-                                                .remove(cat.id)
-                                            : selectedCategoryIds.add(cat.id);
-                                      });
-                                    },
-                                  );
-                                })
-                                .toList(),
-                          ),
-                          if (categoryError != null)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Kategorije',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: availableCategories.map((cat) {
+                                final isSelected =
+                                    selectedCategoryIds.contains(cat.id);
+
+                                return FilterChip(
+                                  label: Text(cat.name),
+                                  selected: isSelected,
+                                  onSelected: (_) {
+                                    setState(() {
+                                      if (isSelected) {
+                                        selectedCategoryIds.remove(cat.id);
+                                      } else {
+                                        selectedCategoryIds.add(cat.id);
+                                      }
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            if (categoryError != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
                                 categoryError!,
                                 style: const TextStyle(
                                   color: Colors.red,
                                   fontSize: 12,
                                 ),
                               ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  if (coverImage != null) ...[
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.memory(
-                        coverImage!,
-                        height: 180,
-                        fit: BoxFit.cover,
-                      ),
+                            ],
+                          ],
+                        );
+                      },
                     ),
+
                     const SizedBox(height: 16),
-                  ],
 
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.image),
-                    label: Text(
-                      (coverImage != null || hadCoverInitially)
-                          ? "Zamijeni naslovnicu"
-                          : "Dodaj naslovnicu",
-                    ),
-                    onPressed: () async {
-                      final result =
-                          await FilePicker.platform.pickFiles(
-                        type: FileType.image,
-                        withData: true,
-                      );
-                      if (result != null) {
-                        setState(() {
-                          coverImage = result.files.first.bytes;
-                        });
-                      }
-                    },
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  if (hadPdfInitially)
-                    TextButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf),
-                      label: const Text("Otvori postojeći PDF"),
-                      onPressed: () {
-                        final base64Pdf = initialData!['pdfFile'] as String;
-                        openPdfFromBase64(context, base64Pdf);
-                      },
-                    ),
-
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.picture_as_pdf),
-                    label: Text(
-                      (pdfFile != null || hadPdfInitially)
-                          ? "Zamijeni PDF"
-                          : "Dodaj PDF",
-                    ),
-                    onPressed: () async {
-                      final result =
-                          await FilePicker.platform.pickFiles(
-                        type: FileType.custom,
-                        allowedExtensions: ['pdf'],
-                        withData: true,
-                      );
-                      if (result != null) {
-                        setState(() {
-                          pdfFile = result.files.first.bytes;
-                        });
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.red.shade300,
-                foregroundColor: Colors.black,
-              ),
-              child: const Text("Otkaži"),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                setState(() {
-                  nameError = null;
-                  priceError = null;
-                  authorError = null;
-                  categoryError = null;
-                });
-
-                bool hasError = false;
-
-                if (nameController.text.trim().length < 3) {
-                  nameError = "Naziv mora imati barem 3 karaktera.";
-                  hasError = true;
-                }
-
-                final price =
-                    double.tryParse(priceController.text.trim());
-                if (price == null || price <= 0) {
-                  priceError = "Unesite validnu cijenu.";
-                  hasError = true;
-                }
-
-                if (selectedAuthorIds.isEmpty) {
-                  authorError = "Odaberite najmanje jednog autora.";
-                  hasError = true;
-                }
-
-                if (selectedCategoryIds.isEmpty) {
-                  categoryError =
-                      "Odaberite najmanje jednu kategoriju.";
-                  hasError = true;
-                }
-
-                if (hasError) {
-                  setState(() {});
-                  return;
-                }
-
-                final bookData = <String, dynamic>{
-                  'name': nameController.text.trim(),
-                  'description': descriptionController.text.trim(),
-                  'price': price,
-                  'coverImage': coverImage != null
-                      ? base64Encode(coverImage!)
-                      : null,
-                  'pdfFile': pdfFile != null
-                      ? base64Encode(pdfFile!)
-                      : null,
-                  'authorIds': selectedAuthorIds,
-                  'categoryIds': selectedCategoryIds,
-                };
-
-                if (initialData != null) {
-                  if (pdfFile == null) {
-                    bookData.remove('pdfFile');
-                  }
-                  if (coverImage == null) {
-                    bookData.remove('coverImage');
-                  }
-
-                  final confirmed = await showDialog<bool>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text("Potvrda"),
-                      content: const Text(
-                        "Želite li sačuvati izmjene?",
+                    if (selectedCoverBytes != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(
+                          selectedCoverBytes!,
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
                       ),
-                      actions: [
-                        TextButton(
-                          onPressed: () =>
-                              Navigator.pop(context, false),
-                          child: const Text("Otkaži"),
+                      const SizedBox(height: 12),
+                    ] else if (existingCoverPath != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _buildFullImageUrl(existingCoverPath),
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 180,
+                            width: double.infinity,
+                            color: Colors.grey.shade200,
+                            alignment: Alignment.center,
+                            child: const Text('Nije moguće učitati naslovnicu'),
+                          ),
                         ),
-                        TextButton(
-                          onPressed: () =>
-                              Navigator.pop(context, true),
-                          child: const Text("Sačuvaj"),
-                        ),
-                      ],
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.image),
+                      label: Text(
+                        (selectedCoverBytes != null || existingCoverPath != null)
+                            ? 'Zamijeni naslovnicu'
+                            : 'Dodaj naslovnicu',
+                      ),
+                      onPressed: pickCoverImage,
                     ),
-                  );
 
-                  if (confirmed != true) return;
-                }
+                    if (selectedCoverFileName != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Odabrana slika: $selectedCoverFileName',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
 
-                try {
-                  if (initialData == null) {
-                    await ApiService.createBook(bookData);
-                  } else {
-                    await ApiService.updateBook(
-                      initialData['id'],
-                      {
-                        'id': initialData['id'],
-                        ...bookData,
-                      },
-                    );
-                  }
+                    const SizedBox(height: 14),
 
-                  Navigator.pop(context);
-                  refreshBooks();
-                } catch (e) {
-                  final message =
-                      e.toString().replaceFirst("Exception: ", "");
-                  errorDialog(context, message);
-                }
-              },
-              style: TextButton.styleFrom(
-                backgroundColor: Colors.green.shade600,
-                foregroundColor: Colors.black,
+                    if (hadPdfInitially && selectedPdfFileName == null)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          'PDF već postoji za ovu knjigu.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf),
+                      label: Text(
+                        (selectedPdfBytes != null || hadPdfInitially)
+                            ? 'Zamijeni PDF'
+                            : 'Dodaj PDF',
+                      ),
+                      onPressed: pickPdfFile,
+                    ),
+
+                    if (selectedPdfFileName != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Odabrani PDF: $selectedPdfFileName',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              child: Text(initialData == null ? "Dodaj" : "Sačuvaj"),
             ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.red.shade300,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('Otkaži'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  saveBook();
+                },
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.green.shade600,
+                  foregroundColor: Colors.black,
+                ),
+                child: Text(initialData == null ? 'Dodaj' : 'Sačuvaj'),
+              ),
+            ],
+          );
+        },
       );
     },
   );
+}
+
+String? _readInitialCoverPath(Map<String, dynamic>? data) {
+  if (data == null) return null;
+
+  final value = data['coverImage'];
+  if (value == null) return null;
+
+  final text = value.toString().trim();
+  if (text.isEmpty) return null;
+
+  return text;
+}
+
+String _buildFullImageUrl(String coverImage) {
+  return ApiService.getImageUrl(coverImage);
 }

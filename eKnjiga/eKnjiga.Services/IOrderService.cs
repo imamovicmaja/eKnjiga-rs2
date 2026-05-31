@@ -8,5 +8,6 @@ namespace eKnjiga.Services
 {
     public interface IOrderService : ICRUDService<OrderResponse, OrderSearchObject, OrderUpsertRequest, OrderUpdateRequest>
     {
+        Task<OrderResponse?> CancelAsync(int id);
     }
 }

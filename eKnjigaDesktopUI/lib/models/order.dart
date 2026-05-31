@@ -43,12 +43,14 @@ class OrderItemResponse {
   final BookResponse? book;
   final int quantity;
   final double unitPrice;
+  final bool isPdfPurchase;
 
   OrderItemResponse({
     required this.id,
     required this.book,
     required this.quantity,
     required this.unitPrice,
+    required this.isPdfPurchase,
   });
 
   double get total => quantity * unitPrice;
@@ -60,6 +62,7 @@ class OrderItemResponse {
           json['book'] != null ? BookResponse.fromJson(json['book']) : null,
       quantity: json['quantity'],
       unitPrice: (json['unitPrice'] as num).toDouble(),
+      isPdfPurchase: json['isPdfPurchase'] ?? false,
     );
   }
 }

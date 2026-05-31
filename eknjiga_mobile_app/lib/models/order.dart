@@ -6,6 +6,7 @@ class OrderResponse {
   final int paymentStatus;
   final int type;
   final DateTime createdAt;
+  final DateTime? expiresAt;
   final UserResponse? user;
   final List<OrderItemResponse> orderItems;
 
@@ -17,6 +18,7 @@ class OrderResponse {
     required this.paymentStatus,
     required this.type,
     required this.createdAt,
+    this.expiresAt,
     required this.user,
     required this.orderItems,
   });
@@ -30,6 +32,9 @@ class OrderResponse {
       paymentStatus: json['paymentStatus'],  
       type: json['type'],                    
       createdAt: DateTime.parse(json['createdAt']),
+      expiresAt: json['expiresAt'] != null
+          ? DateTime.parse(json['expiresAt'])
+          : null,
       user: json['user'] != null ? UserResponse.fromJson(json['user']) : null,
       orderItems: (json['orderItems'] as List<dynamic>)
           .map((e) => OrderItemResponse.fromJson(e))

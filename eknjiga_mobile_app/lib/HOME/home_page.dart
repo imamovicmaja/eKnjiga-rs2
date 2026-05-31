@@ -1,5 +1,3 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import 'genre_screen.dart';
@@ -11,21 +9,36 @@ import 'package:eknjiga/SHOP/shop_page.dart';
 import '../models/book.dart';
 import '../models/category.dart';
 import '../services/api_service.dart';
-import 'book_details_page.dart';
+import '../BOOKSDETAILS/book_details_page.dart';
 
+import '../widgets/book_image.dart';
 import 'cart.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
+  static const LinearGradient _pageGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color(0xFFD4D8F3),
+      Color(0xFF8D9EDB),
+      Color(0xFFB59C4A),
+    ],
+    stops: [0.0, 0.56, 1.0],
+  );
+
   int _selectedIndex = 0;
   final TextEditingController _searchController = TextEditingController();
+
   bool _showSearchBar = false;
   String _searchQuery = '';
+
   List<Book> _recommended = [];
   List<Book> _newBooks = [];
   List<Book> _allBooks = [];
@@ -53,23 +66,39 @@ class _HomePageState extends State<HomePage> {
     final int? categoryId = _selectedCategory?.id;
 
     try {
-      final recommended =
-          await ApiService.fetchRecommendedBooks(categoryId: categoryId);
-      final allBooks =
-          await ApiService.fetchBooks(categoryId: categoryId);
-
-      List<Book> newBooks = [];
       if (categoryId == null) {
-        newBooks = await ApiService.fetchNewBooks();
-      }
+        final results = await Future.wait([
+          ApiService.fetchRecommendedBooks(categoryId: categoryId),
+          ApiService.fetchBooks(categoryId: categoryId),
+          ApiService.fetchNewBooks(),
+        ]);
 
-      setState(() {
-        _recommended = recommended;
-        _newBooks = newBooks;
-        _allBooks = allBooks;
-        _isLoading = false;
-      });
+        if (!mounted) return;
+
+        setState(() {
+          _recommended = results[0] as List<Book>;
+          _allBooks = results[1] as List<Book>;
+          _newBooks = results[2] as List<Book>;
+          _isLoading = false;
+        });
+      } else {
+        final results = await Future.wait([
+          ApiService.fetchRecommendedBooks(categoryId: categoryId),
+          ApiService.fetchBooks(categoryId: categoryId),
+        ]);
+
+        if (!mounted) return;
+
+        setState(() {
+          _recommended = results[0] as List<Book>;
+          _allBooks = results[1] as List<Book>;
+          _newBooks = [];
+          _isLoading = false;
+        });
+      }
     } catch (e) {
+      if (!mounted) return;
+
       setState(() {
         _error = e.toString();
         _isLoading = false;
@@ -86,6 +115,7 @@ class _HomePageState extends State<HomePage> {
   List<Book> _filterBooks(List<Book> books) {
     final q = _searchQuery.trim().toLowerCase();
     if (q.isEmpty) return books;
+
     return books.where((b) {
       final name = b.name.toLowerCase();
       final authors = b.authors.join(' ').toLowerCase();
@@ -93,14 +123,60 @@ class _HomePageState extends State<HomePage> {
     }).toList();
   }
 
+  void _openBook(Book book) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookDetailsPage(bookId: book.id),
+      ),
+    );
+  }
+
+  void _onNavTap(int index) {
+    if (index == _selectedIndex) return;
+
+    setState(() => _selectedIndex = index);
+
+    switch (index) {
+      case 0:
+        return;
+      case 1:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const BookPage()),
+        );
+        break;
+      case 2:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const ShopPage()),
+        );
+        break;
+      case 3:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MessagesPage()),
+        );
+        break;
+      case 4:
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const SettingsPage()),
+        );
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFD4D8F3),
       appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 212, 217, 246),
+        backgroundColor: const Color(0xFFD4D8F3),
         elevation: 0,
+        centerTitle: false,
         leading: IconButton(
-          icon: const Icon(Icons.menu),
+          icon: const Icon(Icons.menu, color: Colors.black),
           onPressed: () async {
             final result = await Navigator.push<Category?>(
               context,
@@ -122,25 +198,42 @@ class _HomePageState extends State<HomePage> {
             }
           },
         ),
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text('eKnjiga', style: TextStyle(fontWeight: FontWeight.bold)),
+          children: [
+            Text(
+              'eKnjiga',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+              ),
+            ),
             Text(
               'For readers, by bookworms.',
-              style: TextStyle(fontSize: 14, color: Colors.black),
+              style: TextStyle(fontSize: 13, color: Colors.black87),
             ),
           ],
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _showSearchBar = !_showSearchBar),
+            icon: const Icon(Icons.search, color: Colors.black),
+            onPressed: () {
+              setState(() {
+                _showSearchBar = !_showSearchBar;
+
+                if (!_showSearchBar) {
+                  _searchController.clear();
+                  _searchQuery = '';
+                }
+              });
+            },
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: Colors.black),
             onPressed: () {
               _selectedCategory = null;
+              _searchController.clear();
+              _searchQuery = '';
               _loadData();
             },
           ),
@@ -148,6 +241,7 @@ class _HomePageState extends State<HomePage> {
             valueListenable: Cart.I.count,
             builder: (context, value, _) {
               final hasItems = value > 0;
+
               return Stack(
                 clipBehavior: Clip.none,
                 children: [
@@ -182,6 +276,7 @@ class _HomePageState extends State<HomePage> {
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
+                            fontWeight: FontWeight.bold,
                           ),
                           textAlign: TextAlign.center,
                         ),
@@ -191,79 +286,39 @@ class _HomePageState extends State<HomePage> {
               );
             },
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Container(
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color.fromARGB(255, 212, 217, 246),
-              Color.fromARGB(255, 141, 158, 219),
-              Color.fromARGB(255, 181, 156, 74),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
+          gradient: _pageGradient,
         ),
-        padding: const EdgeInsets.only(top: 10),
         child: _buildBody(),
       ),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
+        backgroundColor: Colors.white,
         selectedItemColor: Colors.black,
-        onTap: (index) {
-          if (index == _selectedIndex) return;
-          setState(() => _selectedIndex = index);
-          switch (index) {
-            case 0:
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const HomePage()),
-              );
-              break;
-            case 1:
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const BookPage()),
-              );
-              break;
-            case 2:
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const ShopPage()),
-              );
-              break;
-            case 3:
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const MessagesPage()),
-              );
-              break;
-            case 4:
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
-              );
-              break;
-          }
-        },
+        unselectedItemColor: Colors.black54,
+        elevation: 8,
+        onTap: _onNavTap,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home, size: 32), label: ""),
+          BottomNavigationBarItem(icon: Icon(Icons.home, size: 30), label: ""),
           BottomNavigationBarItem(
-            icon: Icon(Icons.menu_book, size: 32),
+            icon: Icon(Icons.menu_book, size: 30),
             label: "",
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.shopping_bag, size: 32),
+            icon: Icon(Icons.shopping_bag, size: 30),
             label: "",
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.comment, size: 32),
+            icon: Icon(Icons.comment, size: 30),
             label: "",
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings, size: 32),
+            icon: Icon(Icons.settings, size: 30),
             label: "",
           ),
         ],
@@ -272,147 +327,101 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48),
-              const SizedBox(height: 12),
-              const Text(
-                'Greška pri dohvatu podataka',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadData,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Pokušaj ponovo'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final filteredRecommended = _filterBooks(_recommended);
-    final filteredNew = _filterBooks(_newBooks);
-    final filteredAll = _filterBooks(_allBooks);
-
-    return ListView(
-      children: [
-        if (_selectedCategory != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              'Odabrani žanr: ${_selectedCategory!.name}',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-
-        if (_showSearchBar)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: TextField(
-                controller: _searchController,
-                onChanged:
-                    (value) =>
-                        setState(() => _searchQuery = value.toLowerCase()),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search, color: Colors.black54),
-                  hintText: 'Pretraži',
-                  hintStyle: TextStyle(color: Colors.black54),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-          ),
-
-        sectionTitle('Preporučeno'),
-        bookCarousel(filteredRecommended),
-
-        if (_selectedCategory == null) ...[
-          sectionTitle('Novo u prodaji'),
-          bookCarousel(filteredNew),
-        ],
-
-        sectionTitle('Sve knjige'),
-        bookCarousel(filteredAll),
-        const SizedBox(height: 16),
-      ],
-    );
+  if (_isLoading) {
+    return const Center(child: CircularProgressIndicator());
   }
 
-  Widget sectionTitle(String title) {
+  if (_error != null) {
+    return Center(child: Text(_error!));
+  }
+
+  final filteredRecommended = _filterBooks(_recommended);
+  final filteredNew = _filterBooks(_newBooks);
+  final filteredAll = _filterBooks(_allBooks);
+
+  return Column(
+    children: [
+      if (_showSearchBar)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) {
+              setState(() {
+                _searchQuery = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Pretraži knjige ili autore...',
+              prefixIcon: const Icon(Icons.search),
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+
+      Expanded(
+        child: ListView(
+          padding: const EdgeInsets.only(top: 10, bottom: 16),
+          children: [
+            _sectionTitle('Preporučeno'),
+            _bookCarousel(filteredRecommended),
+
+            if (_selectedCategory == null) ...[
+              _sectionTitle('Novo u prodaji'),
+              _bookCarousel(filteredNew),
+            ],
+
+            _sectionTitle('Sve knjige'),
+            _bookCarousel(filteredAll),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+  Widget _sectionTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
       child: Text(
         title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.bold,
+          color: Colors.black87,
+        ),
       ),
     );
   }
 
-  Widget bookCarousel(List<Book> books) {
-    if (books.isEmpty) {
-      return const SizedBox(
-        height: 60,
-        child: Center(child: Text('Trenutno nema knjiga za prikaz.')),
-      );
-    }
-
-    const double cardWidth = 120;
-    const double imageHeight = 170;
+  Widget _bookCarousel(List<Book> books) {
+    const double cardWidth = 135;
+    const double imageHeight = 188;
 
     return SizedBox(
-      height: imageHeight + 70,
+      height: 258,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: books.length,
         padding: const EdgeInsets.symmetric(horizontal: 16),
         itemBuilder: (context, index) {
           final book = books[index];
-          return Container(
-            margin: const EdgeInsets.only(right: 16),
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 14),
             child: InkWell(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => BookDetailsPage(book: book),
-                  ),
-                );
-              },
-              child: Hero(
-                tag: 'book-cover-${book.id}',
-                child: _BookCard(
-                  book: book,
-                  cardWidth: cardWidth,
-                  imageHeight: imageHeight,
-                ),
+              borderRadius: BorderRadius.circular(24),
+              onTap: () => _openBook(book),
+              child: _BookCard(
+                book: book,
+                cardWidth: cardWidth,
+                imageHeight: imageHeight,
               ),
             ),
           );
@@ -435,59 +444,56 @@ class _BookCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = ApiService.getImageUrl(book.coverImage);
+
     return SizedBox(
       width: cardWidth,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: _bookCover(book, height: imageHeight, width: cardWidth),
-          ),
+          imageUrl.isNotEmpty
+              ? BookImage(
+                  url: imageUrl,
+                  height: imageHeight,
+                  width: cardWidth,
+                  borderRadius: 24,
+                )
+              : Container(
+                  height: imageHeight,
+                  width: cardWidth,
+                  color: Colors.grey.shade200,
+                  alignment: Alignment.center,
+                  child: const Icon(Icons.menu_book, size: 40),
+                ),
           const SizedBox(height: 8),
-          Text(
-            book.name,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+          SizedBox(
+            height: 34,
+            child: Text(
+              book.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                height: 1.1,
+                color: Colors.black87,
+              ),
+            ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            book.authors.join(', '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.black87, fontSize: 13),
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 18,
+            child: Text(
+              book.authors.join(', '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.black54,
+                fontSize: 12.5,
+              ),
+            ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-Widget _bookCover(Book book, {double? height, double? width}) {
-  final base64Str = book.coverImageBase64;
-  if (base64Str == null || base64Str.isEmpty) {
-    return Container(
-      height: height,
-      width: width,
-      color: Colors.white,
-      child: const Center(
-        child: Icon(Icons.bookmark, size: 40, color: Colors.black45),
-      ),
-    );
-  }
-  try {
-    final cleaned =
-        base64Str.contains(',') ? base64Str.split(',').last : base64Str;
-    final Uint8List bytes = base64Decode(cleaned);
-    return Image.memory(bytes, height: height, width: width, fit: BoxFit.cover);
-  } catch (_) {
-    return Container(
-      height: height,
-      width: width,
-      color: Colors.white,
-      child: const Center(
-        child: Icon(Icons.broken_image, size: 40, color: Colors.black45),
       ),
     );
   }

@@ -12,5 +12,8 @@ namespace eKnjiga.Model.Requests
 
         [Required]
         public decimal UnitPrice { get; set; }
+
+        [Required]
+        public bool IsPdfPurchase { get; set; }
     }
 }

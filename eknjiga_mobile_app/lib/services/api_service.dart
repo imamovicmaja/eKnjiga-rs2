@@ -2,21 +2,22 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'package:http_parser/http_parser.dart';
-
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import '../core/config/config.dart';
 import '../models/comment.dart';
 import '../models/commentAnswer.dart';
 import '../models/category.dart';
 import '../models/book.dart';
+import '../models/book_list_item.dart';
 import '../models/order.dart';
 import '../models/review.dart';
 import '../models/paypal.dart';
+import '../models/favorites.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _apiBase = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:7114/api',
-  );
+  static const String _apiBase = Config.apiBase;
 
   static String _authHeader = '';
   static int userID = 0;
@@ -103,6 +104,20 @@ class ApiService {
     _authHeader = basicAuth;
 
     await _saveSession();
+  }
+
+  //----------- Register ----------
+
+  static Future<void> register(Map<String, dynamic> data) async {
+    final response = await http.post(
+      Uri.parse("$_apiBase/Users/register"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(data),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(response.body);
+    }
   }
 
   // ---------- Comments ----------
@@ -269,6 +284,29 @@ class ApiService {
     return {'items': items};
   }
 
+  //-----------PDF-------------------
+
+  static Future<Uint8List> getBookPdf(int id) async {
+    final response = await http.get(
+      Uri.parse('$_apiBase/Book/$id/pdf'),
+      headers: await _headersNoBody(),
+    );
+
+    if (response.statusCode == 404) {
+      throw Exception('NOT_PAID');
+    }
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception('NO_ACCESS');
+    }
+
+    if (response.statusCode != 200) {
+      throw Exception('ERROR');
+    }
+
+    return response.bodyBytes;
+  }
+
   // ---------- Categories ----------
 
   static Future<List<Category>> fetchCategories() async {
@@ -285,7 +323,32 @@ class ApiService {
     }
   }
 
+  //----------- Cities ---------
+
+  static Future<List<dynamic>> getCities() async {
+    final response = await http.get(
+      Uri.parse('$_apiBase/City'),
+      headers: await _headersNoBody(),
+    );
+
+    if (response.statusCode == 200) {
+      final decoded = jsonDecode(response.body);
+      return decoded['items'] as List<dynamic>;
+    } else {
+      throw Exception('Greška pri dohvatanju gradova: ${response.body}');
+    }
+  }
+
   // ---------- Books ----------
+
+  static String getImageUrl(String? relativeUrl) {
+    if (relativeUrl == null || relativeUrl.isEmpty) return '';
+
+    if (relativeUrl.startsWith('http')) return relativeUrl;
+
+    final serverBase = _apiBase.replaceFirst('/api', '');
+    return '$serverBase$relativeUrl';
+  }
 
   static Future<List<Book>> fetchBooks({int? categoryId}) async {
     final uri = Uri.parse('$_apiBase/Book').replace(
@@ -293,10 +356,7 @@ class ApiService {
           categoryId != null ? {'CategoryId': categoryId.toString()} : null,
     );
 
-    final response = await http.get(
-      uri,
-      headers: await _headersNoBody(),
-    );
+    final response = await http.get(uri, headers: await _headersNoBody());
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body)['items'];
@@ -306,27 +366,42 @@ class ApiService {
     }
   }
 
-  static Future<List<Book>> fetchRecommendedBooks({int? categoryId}) async {
-    final queryParams = <String, String>{
-      'userId': userID.toString(),
-    };
-    if (categoryId != null) {
-      queryParams['CategoryId'] = categoryId.toString();
-    }
-
-    final uri =
-        Uri.parse('$_apiBase/Book/recommended').replace(queryParameters: queryParams);
-
+  static Future<Book> getBookById(int id) async {
     final response = await http.get(
-      uri,
+      Uri.parse('$_apiBase/Book/$id'),
       headers: await _headersNoBody(),
     );
+
+    if (response.statusCode != 200) {
+      throw Exception('Greška pri dohvaćanju knjige');
+    }
+
+    return Book.fromJson(jsonDecode(response.body));
+  }
+
+  static Future<List<Book>> fetchRecommendedBooks({int? categoryId}) async {
+    final queryParams = <String, String>{};
+
+    if (categoryId != null) {
+      queryParams['categoryId'] = categoryId.toString();
+    }
+
+    final uri = Uri.parse(
+      '$_apiBase/Book/recommended',
+    ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+    print("QUERY PARAMS: $queryParams");
+    print("URL: $uri");
+
+    final response = await http.get(uri, headers: await _headersNoBody());
 
     if (response.statusCode == 200) {
       final List data = json.decode(response.body);
       return data.map((json) => Book.fromJson(json)).toList();
     } else {
-      throw Exception('Greška pri dohvatu preporučenih knjiga: ${response.body}');
+      throw Exception(
+        'Greška pri dohvatu preporučenih knjiga: ${response.body}',
+      );
     }
   }
 
@@ -346,30 +421,31 @@ class ApiService {
 
   static Future<List<Book>> fetchUserBooks() async {
     final url = Uri.parse('$_apiBase/Users/$userID');
-    final resp = await http.get(
-      url,
-      headers: await _headersNoBody(),
-    );
+
+    final resp = await http.get(url, headers: await _headersNoBody());
 
     if (resp.statusCode != 200) {
       throw Exception('Greška pri dohvatu korisničkih knjiga: ${resp.body}');
     }
 
     final decoded = json.decode(resp.body);
-    if (decoded is Map<String, dynamic>) {
-      final userBooks = decoded['userBooks'];
-      if (userBooks is List) {
-        return userBooks
-            .map((e) => Book.fromJson(e as Map<String, dynamic>))
-            .toList();
-      } else {
-        throw Exception(
-          'Polje "userBooks" nije lista: ${userBooks.runtimeType}',
-        );
+    final List items = decoded['userBooks'] as List;
+
+    Favorites.I.items.clear();
+
+    final books = <Book>[];
+
+    for (final item in items) {
+      final map = item as Map<String, dynamic>;
+      final book = Book.fromJson(map['book'] as Map<String, dynamic>);
+      books.add(book);
+
+      if (map['isFavorite'] == true) {
+        Favorites.I.add(book);
       }
     }
 
-    throw Exception('Neočekivan format odgovora: ${decoded.runtimeType}');
+    return books;
   }
 
   // ---------- Users ----------
@@ -426,6 +502,75 @@ class ApiService {
     }
   }
 
+  static Future<void> setFavorite(int bookId, bool isFavorite) async {
+    final response = await http.put(
+      Uri.parse('$_apiBase/Users/$userID/books/$bookId/favorite'),
+      headers: await _headersJson(),
+      body: jsonEncode(isFavorite),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Greška pri postavljanju favorita: ${response.body}');
+    }
+  }
+
+  static Future<bool> getFavorite(int bookId) async {
+    final userId = userID;
+
+    final resp = await http.get(
+      Uri.parse('$_apiBase/Users/$userId/books/$bookId/favorite'),
+      headers: await _headersNoBody(),
+    );
+
+    if (resp.statusCode == 200) {
+      return jsonDecode(resp.body) as bool;
+    }
+
+    throw Exception('Greška pri dohvaćanju favorita: ${resp.body}');
+  }
+
+  static Future<bool> hasPurchasedPdf(int bookId) async {
+    await _ensureAuth();
+
+    if (userID == 0) return false;
+
+    final uri = Uri.parse('$_apiBase/Order?userId=$userID&RetrieveAll=true');
+
+    final response = await http.get(uri, headers: await _headersNoBody());
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Greška pri provjeri kupljenih PDF knjiga: ${response.body}',
+      );
+    }
+
+    final data = jsonDecode(response.body);
+    final items = (data['items'] as List?) ?? [];
+
+    for (final order in items) {
+      final type = order['type'];
+      final orderStatus = order['orderStatus'];
+
+      final isPurchase = type == 0;
+      final isCompleted = orderStatus == 2;
+
+      if (!isPurchase || !isCompleted) continue;
+
+      final orderItems = (order['orderItems'] as List?) ?? [];
+
+      for (final item in orderItems) {
+        final isPdfPurchase = item['isPdfPurchase'] == true;
+        final itemBook = item['book'];
+        final itemBookId = itemBook != null ? itemBook['id'] : null;
+
+        if (isPdfPurchase && itemBookId == bookId) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
   // ---------- Orders ----------
 
   static Future<int> createOrder({
@@ -465,10 +610,7 @@ class ApiService {
 
     final uri = Uri.parse('$_apiBase/Order').replace(queryParameters: params);
 
-    final response = await http.get(
-      uri,
-      headers: await _headersNoBody(),
-    );
+    final response = await http.get(uri, headers: await _headersNoBody());
 
     if (response.statusCode != 200) {
       throw Exception('Greška pri dohvatu narudžbi: ${response.body}');
@@ -479,17 +621,24 @@ class ApiService {
     return items.map((e) => OrderResponse.fromJson(e)).toList();
   }
 
+  static Future<void> cancelOrder(int orderId) async {
+    final response = await http.put(
+      Uri.parse('$_apiBase/Order/$orderId/cancel'),
+      headers: await _headersNoBody(),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Greška pri otkazivanju narudžbe: ${response.body}');
+    }
+  }
+
   // ---------- Reviews ----------
 
   static Future<void> createReview({
     required double rating,
     required int bookId,
   }) async {
-    final body = {
-      "rating": rating,
-      "bookId": bookId,
-      "userId": userID,
-    };
+    final body = {"rating": rating, "bookId": bookId, "userId": userID};
 
     final response = await http.post(
       Uri.parse('$_apiBase/Review'),
@@ -523,10 +672,7 @@ class ApiService {
     }
 
     final item = data['items'][0];
-    return UserReviewResult(
-      item['id'],
-      (item['rating'] as num).toDouble(),
-    );
+    return UserReviewResult(item['id'], (item['rating'] as num).toDouble());
   }
 
   static Future<void> updateReview({
@@ -534,11 +680,7 @@ class ApiService {
     required double rating,
     required int bookId,
   }) async {
-    final body = {
-      "rating": rating,
-      "bookId": bookId,
-      "userId": userID,
-    };
+    final body = {"rating": rating, "bookId": bookId, "userId": userID};
 
     final response = await http.put(
       Uri.parse('$_apiBase/Review/$reviewId'),
@@ -576,19 +718,15 @@ class ApiService {
 
   // ---------- PayPal ----------
 
-  static String get paypalReturnUrlPrefix => 'eknjiga://paypal-return';
-  static String get paypalCancelUrlPrefix => 'eknjiga://paypal-cancel';
+  static String get paypalReturnUrlPrefix => Config.paypalReturnUrl;
+  static String get paypalCancelUrlPrefix => Config.paypalCancelUrl;
 
   static Future<PaypalCreateOrderResult> paypalCreateOrder({
     required int orderId,
     required double amount,
     String currency = 'EUR',
   }) async {
-    final body = {
-      "orderId": orderId,
-      "amount": amount,
-      "currency": currency,
-    };
+    final body = {"orderId": orderId, "amount": amount, "currency": currency};
 
     final response = await http.post(
       Uri.parse('$_apiBase/Paypal/create-order'),
@@ -664,9 +802,8 @@ class ApiService {
 
     // Kamera/emulator nekad vrati čudan path bez ekstenzije -> forsiraj jpg
     final filename = isPng ? 'profile.png' : 'profile.jpg';
-    final contentType = isPng
-        ? MediaType('image', 'png')
-        : MediaType('image', 'jpeg');
+    final contentType =
+        isPng ? MediaType('image', 'png') : MediaType('image', 'jpeg');
 
     request.files.add(
       await http.MultipartFile.fromPath(

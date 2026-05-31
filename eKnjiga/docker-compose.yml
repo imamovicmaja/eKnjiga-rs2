@@ -39,17 +39,14 @@ services:
     build:
       context: .
       target: webapi
+    env_file:
+      - .env
     environment:
-      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
       - ASPNETCORE_ENVIRONMENT=Development
-      - Smtp__Host=eknjiga-mailhog
-      - Smtp__Port=1025
-      - Smtp__User=
-      - Smtp__Pass=
-      - Smtp__From=noreply@eknjiga.local
-      - Rabbit__ConnectionString=amqp://guest:guest@eknjiga-rabbit:5672/
     ports:
       - 7114:80
+    volumes:
+      - ./eKnjiga.WebAPI/wwwroot:/app/wwwroot
     networks:
       - eknjiga
     depends_on:
@@ -61,13 +58,10 @@ services:
     build:
       context: .
       target: worker
+    env_file:
+      - .env
     environment:
-      - ConnectionStrings__DefaultConnection=Server=eknjiga-sql,1433;Database=200127;User=sa;Password=QWElkj132!;ConnectRetryCount=0;TrustServerCertificate=True
       - ASPNETCORE_ENVIRONMENT=Development
-      - Rabbit__ConnectionString=amqp://guest:guest@eknjiga-rabbit:5672/
-      - Smtp__Host=eknjiga-mailhog
-      - Smtp__Port=1025
-      - Smtp__From=noreply@eknjiga.local
     networks:
       - eknjiga
     depends_on:

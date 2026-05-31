@@ -33,8 +33,8 @@ namespace eKnjiga.Services.Database
                 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-        public byte[]? ProfileImage { get; set; }
-                
+        public string? ProfileImage { get; set; }
+
         [Phone]
         [MaxLength(20)]
         public string? PhoneNumber { get; set; }

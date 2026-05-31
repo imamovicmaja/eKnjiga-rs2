@@ -1,13 +1,9 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:intl/intl.dart';
-
-import './../Home/home_page.dart';
+import './../HOME/home_page.dart';
 import './../BOOKS/books_page.dart';
 import './../SHOP/shop_page.dart';
 import './../SETTINGS/settings_page.dart';
-
 import '../models/comment.dart';
 import '../services/api_service.dart';
 
@@ -423,53 +419,56 @@ class _MessagesPageState extends State<MessagesPage> {
     return out.length > 2 ? out.substring(0, 2) : out;
   }
 
-  Widget _profileAvatar({
+ Widget _profileAvatar({
   required String initials,
   String? imageUrl,
   double radius = 16,
-}) {
-  final raw = (imageUrl ?? '').trim();
+  }) {
+    final url = ApiService.getImageUrl(imageUrl);
 
-  ImageProvider? provider;
+    final hasValidUrl = url.isNotEmpty && url.startsWith('http');
 
-  if (raw.isNotEmpty) {
-    final cleaned = raw.contains('base64,') ? raw.split('base64,').last : raw;
-
-    final isProbablyBase64 = !cleaned.startsWith('http') && cleaned.length > 100;
-
-    if (isProbablyBase64) {
-      try {
-        final Uint8List bytes = base64Decode(cleaned);
-        provider = MemoryImage(bytes);
-      } catch (_) {
-        provider = null;
-      }
-    } else if (cleaned.startsWith('http')) {
-      provider = NetworkImage(cleaned);
+    if (hasValidUrl) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: const Color(0xFF9DAAE0),
+        child: ClipOval(
+          child: Image.network(
+            url,
+            width: radius * 2,
+            height: radius * 2,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Center(
+                child: Text(
+                  initials,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: radius * 0.9,
+                    color: Colors.black,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
     }
-  }
 
-  if (provider != null) {
+    // fallback ako nema slike
     return CircleAvatar(
       radius: radius,
-      backgroundColor: Colors.white,
-      backgroundImage: provider,
+      backgroundColor: const Color(0xFF9DAAE0),
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          fontSize: radius * 0.9,
+          color: Colors.black,
+        ),
+      ),
     );
   }
-
-  return CircleAvatar(
-    radius: radius,
-    backgroundColor: const Color(0xFF9DAAE0),
-    child: Text(
-      initials,
-      style: TextStyle(
-        fontWeight: FontWeight.bold,
-        fontSize: radius * 0.9,
-        color: Colors.black,
-      ),
-    ),
-  );
-}
 
   @override
   Widget build(BuildContext context) {

@@ -1,12 +1,19 @@
 using eKnjiga.Services;
 using eKnjiga.Services.Database;
+using eKnjiga.Services.Database.seedAssets;
 using eKnjiga.WebAPI.Filters;
+using eKnjiga.WebAPI.Middleware;
 using Mapster;
 using MapsterMapper;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Configuration;
 using Microsoft.OpenApi.Models;
 using eKnjiga.Services.Messaging;
 using System.Net;
+using System;
+using eKnjiga.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,8 +23,7 @@ builder.WebHost.UseUrls("http://0.0.0.0:80");
 builder.Services.AddTransient<IUserService, UserService>();
 builder.Services.AddTransient<IRoleService, RoleService>();
 builder.Services.AddTransient<IAuthorService, AuthorService>();
-builder.Services.AddTransient<IAuthorService, AuthorService>();
-builder.Services.AddTransient<IBookService, BookService>();
+builder.Services.AddScoped<IBookService, BookService>();
 builder.Services.AddTransient<ICategoryService, CategoryService>();
 builder.Services.AddTransient<ICityService, CityService>();
 builder.Services.AddTransient<ICommentService, CommentService>();
@@ -27,7 +33,7 @@ builder.Services.AddTransient<IOrderService, OrderService>();
 builder.Services.AddTransient<IReviewService, ReviewService>();
 builder.Services.AddTransient<IUserReportService, UserReportService>();
 builder.Services.AddTransient<ICommentReactionService, CommentReactionService>();
-builder.Services.AddTransient<IRecommendationService, RecommendationService>();
+builder.Services.AddScoped<IRecommendationService, RecommendationService>();
 
 builder.Services.AddTransient<IPaypalService, PaypalService>();
 builder.Services.AddHttpClient("paypal", client =>
@@ -43,18 +49,25 @@ builder.Services.AddHttpClient("paypal", client =>
     ConnectTimeout = TimeSpan.FromSeconds(60),
 });
 
+builder.Services.AddHttpContextAccessor();
+
 builder.Services.AddMapster();
+
 // Configure database
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") ?? "Server=localhost;Database=eKnjigaDb;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True";
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' nije postavljen.");
+
 builder.Services.AddDatabaseServices(connectionString);
+
 builder.Services.AddAuthentication("BasicAuthentication")
     .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", null);
 
+builder.Services.AddAuthorization();
 
-builder.Services.AddSingleton<IEmailQueue>(_ =>
-    new RabbitEmailQueue(builder.Configuration["Rabbit:ConnectionString"]!));
+builder.Services.AddSingleton<IEmailQueue, RabbitEmailQueue>();
 
 builder.Services.AddControllers();
+
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -65,31 +78,47 @@ builder.Services.AddSwaggerGen(c =>
         Type = SecuritySchemeType.Http,
         Scheme = "basic",
         In = ParameterLocation.Header,
-        Description = "Basic Authorization header using the Bearer scheme."
+        Description = "Basic Authorization header using the Basic scheme."
     });
+
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "BasicAuthentication" } },
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "BasicAuthentication"
+                }
+            },
             new string[] { }
         }
     });
 });
 
-builder.Services.AddCors(options => {
-    options.AddPolicy("AllowAll", policy => {
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
     });
 });
 
-
 var app = builder.Build();
 
-// Ensure database is created
+
+// Kreiranje baze + runtime seed za covere i PDF-ove
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<eKnjigaDbContext>();
-    dbContext.Database.EnsureCreated();
+
+    dbContext.Database.Migrate();
+
+    DbSeeder.SeedBookFiles(dbContext);
+    // DbSeeder.SeedOrders(dbContext);
 }
 
 // Configure the HTTP request pipeline.
@@ -99,12 +128,43 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
+
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+
+if (!Directory.Exists(webRootPath))
+{
+    Directory.CreateDirectory(webRootPath);
+}
+
+// CORS mora ići prije static files da bi slike radile i u Chrome-u
+app.UseCors("AllowAll");
+
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new PhysicalFileProvider(webRootPath),
+    RequestPath = "",
+    OnPrepareResponse = ctx =>
+    {
+        var headers = ctx.Context.Response.Headers;
+
+        headers["Cache-Control"] = "no-cache";
+        headers["Access-Control-Allow-Origin"] = "*";
+
+        var ext = Path.GetExtension(ctx.File.Name).ToLowerInvariant();
+        if (ext == ".png")
+            ctx.Context.Response.ContentType = "image/png";
+        else if (ext == ".jpg" || ext == ".jpeg")
+            ctx.Context.Response.ContentType = "image/jpeg";
+        else if (ext == ".webp")
+            ctx.Context.Response.ContentType = "image/webp";
+    }
+});
 
 app.UseAuthentication();
-app.UseAuthorization(); 
-
-app.UseCors("AllowAll");
+app.UseAuthorization();
 
 app.MapControllers();
 

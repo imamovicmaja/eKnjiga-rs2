@@ -7,7 +7,6 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace eKnjiga.Services
 {
@@ -50,10 +49,7 @@ namespace eKnjiga.Services
 
         public override async Task<PagedResult<AuthorResponse>> GetAsync(AuthorSearchObject search)
         {
-            var query = _context.Authors
-                .Include(a => a.BookAuthors).ThenInclude(ba => ba.Book).ThenInclude(b => b.BookCategories).ThenInclude(bc => bc.Category)
-                .Include(a => a.BookAuthors).ThenInclude(ba => ba.Book).ThenInclude(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .AsQueryable();
+            var query = _context.Authors.AsQueryable();
 
             query = ApplyFilter(query, search);
 
@@ -82,8 +78,6 @@ namespace eKnjiga.Services
         public override async Task<AuthorResponse?> GetByIdAsync(int id)
         {
             var author = await _context.Authors
-                .Include(a => a.BookAuthors).ThenInclude(ba => ba.Book).ThenInclude(b => b.BookCategories).ThenInclude(bc => bc.Category)
-                .Include(a => a.BookAuthors).ThenInclude(ba => ba.Book).ThenInclude(b => b.BookAuthors).ThenInclude(ba => ba.Author)
                 .FirstOrDefaultAsync(a => a.Id == id);
 
             return author != null ? MapToResponse(author) : null;
@@ -98,30 +92,7 @@ namespace eKnjiga.Services
                 LastName = author.LastName,
                 BirthDate = author.BirthDate,
                 DeathDate = author.DeathDate,
-                Description = author.Description,
-                Books = author.BookAuthors?.Select(ba => new BookResponse
-                {
-                    Id = ba.Book.Id,
-                    Name = ba.Book.Name,
-                    Description = ba.Book.Description,
-                    Price = ba.Book.Price,
-                    CoverImage = ba.Book.CoverImage,
-                    PdfFile = ba.Book.PdfFile,
-                    Rating = ba.Book.Rating,
-                    RatingCount = ba.Book.RatingCount,
-                    CreatedAt = ba.Book.CreatedAt,
-                    Authors = ba.Book.BookAuthors?.Select(ba2 => new AuthorResponse
-                    {
-                        Id = ba2.Author.Id,
-                        FirstName = ba2.Author.FirstName,
-                        LastName = ba2.Author.LastName
-                    }).ToList() ?? new List<AuthorResponse>(),
-                    Categories = ba.Book.BookCategories?.Select(bc => new CategoryResponse
-                    {
-                        Id = bc.Category.Id,
-                        Name = bc.Category.Name
-                    }).ToList() ?? new List<CategoryResponse>()
-                }).ToList() ?? new List<BookResponse>()
+                Description = author.Description
             };
         }
     }

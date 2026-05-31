@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
@@ -16,7 +15,7 @@ namespace eKnjiga.Model.Requests
         [Required]
         public double Price { get; set; }
 
-        public byte[]? CoverImage { get; set; }
+        public string? CoverImage { get; set; }
 
         public byte[]? PdfFile { get; set; }
 

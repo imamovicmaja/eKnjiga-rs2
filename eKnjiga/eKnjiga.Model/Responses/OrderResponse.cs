@@ -13,6 +13,7 @@ namespace eKnjiga.Model.Responses
         public PaymentStatus PaymentStatus { get; set; }
         public OrderType Type { get; set; }
         public DateTime CreatedAt { get; set; }
+        public DateTime? ExpiresAt { get; set; }
         public UserResponse? User { get; set; }
         public List<OrderItemResponse> OrderItems { get; set; } = new List<OrderItemResponse>();
     }

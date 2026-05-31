@@ -20,42 +20,33 @@ namespace eKnjiga.Services
             _mapper = mapper;
         }
 
-        private static BookResponse MapBookToResponse(Book b) => new BookResponse
+        private static BookListResponse MapBookToResponse(Book b) => new BookListResponse
         {
             Id = b.Id,
             Name = b.Name,
-            Description = b.Description,
-            Price = b.Price,
-            CoverImage = b.CoverImage,
-            PdfFile = b.PdfFile,
             Rating = b.Rating,
             RatingCount = b.RatingCount,
-            CreatedAt = b.CreatedAt,
+            CoverImage = b.CoverImage,
             Authors = b.BookAuthors?
                 .Select(ba => new AuthorResponse
                 {
                     Id = ba.Author.Id,
                     FirstName = ba.Author.FirstName,
                     LastName = ba.Author.LastName
-                }).ToList() ?? new List<AuthorResponse>(),
-            Categories = b.BookCategories?
-                .Select(bc => new CategoryResponse
-                {
-                    Id = bc.Category.Id,
-                    Name = bc.Category.Name
-                }).ToList() ?? new List<CategoryResponse>()
+                })
+                .ToList() ?? new List<AuthorResponse>()
         };
 
-        public async Task<IReadOnlyList<BookResponse>> GetRecommendedAsync(int userId, int count = 10, int? categoryId = null)
+        public async Task<IReadOnlyList<BookListResponse>> GetRecommendedAsync(int userId, int count = 10, int? categoryId = null)
         {
-            var cf = await GetRecommendedCfKnnAsync(userId, count, k: 25, categoryId);
+            var cf = await GetRecommendedCfKnnAsync(userId, count, 25, categoryId);
             if (cf.Count > 0)
                 return cf;
 
             return await GetRecommendedHeuristicAsync(userId, count, categoryId);
         }
 
-        public async Task<IReadOnlyList<BookResponse>> GetRecommendedHeuristicAsync(int userId, int count = 10, int? categoryId = null)
+        public async Task<IReadOnlyList<BookListResponse>> GetRecommendedHeuristicAsync(int userId, int count = 10, int? categoryId = null)
         {
             var userBookIds = await _ctx.UserBooks
                 .AsNoTracking()
@@ -66,16 +57,14 @@ namespace eKnjiga.Services
 
             var userBookSet = userBookIds.ToHashSet();
 
-            IQueryable<Book> baseQuery = _ctx.Books
-                .Include(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .Include(b => b.BookCategories).ThenInclude(bc => bc.Category);
+            IQueryable<Book> baseQuery = _ctx.Books.AsQueryable();
 
             if (categoryId.HasValue)
             {
-                baseQuery = baseQuery.Where(b => b.BookCategories.Any(bc => bc.CategoryId == categoryId.Value));
+                baseQuery = baseQuery.Where(b =>
+                    b.BookCategories.Any(bc => bc.CategoryId == categoryId.Value));
             }
 
-            // Cold-start: no purchases -> best rated/newest
             if (userBookIds.Count == 0)
             {
                 var coldBooks = await baseQuery
@@ -83,12 +72,25 @@ namespace eKnjiga.Services
                     .OrderByDescending(b => (b.Rating * (b.RatingCount + 1)))
                     .ThenByDescending(b => b.CreatedAt)
                     .Take(count)
+                    .Select(b => new BookListResponse
+                    {
+                        Id = b.Id,
+                        Name = b.Name,
+                        Rating = b.Rating,
+                        RatingCount = b.RatingCount,
+                        CoverImage = b.CoverImage,
+                        Authors = b.BookAuthors.Select(ba => new AuthorResponse
+                        {
+                            Id = ba.Author.Id,
+                            FirstName = ba.Author.FirstName,
+                            LastName = ba.Author.LastName
+                        }).ToList()
+                    })
                     .ToListAsync();
 
-                return coldBooks.Select(MapBookToResponse).ToList();
+                return coldBooks;
             }
 
-            // Build user profile from purchases (categories & authors)
             var userProfile = await _ctx.Books
                 .AsNoTracking()
                 .Where(b => userBookSet.Contains(b.Id))
@@ -109,10 +111,26 @@ namespace eKnjiga.Services
                 .GroupBy(x => x)
                 .ToDictionary(g => g.Key, g => g.Count());
 
-            // ✅ KLJUČNO: filtriraj kupljene u query-ju (prije ToListAsync)
             var candidates = await baseQuery
                 .AsNoTracking()
                 .Where(b => !userBookSet.Contains(b.Id))
+                .Select(b => new
+                {
+                    Id = b.Id,
+                    Name = b.Name,
+                    Rating = b.Rating,
+                    RatingCount = b.RatingCount,
+                    CoverImage = b.CoverImage,
+                    CreatedAt = b.CreatedAt,
+                    CategoryIds = b.BookCategories.Select(bc => bc.CategoryId).ToList(),
+                    AuthorIds = b.BookAuthors.Select(ba => ba.AuthorId).ToList(),
+                    Authors = b.BookAuthors.Select(ba => new AuthorResponse
+                    {
+                        Id = ba.Author.Id,
+                        FirstName = ba.Author.FirstName,
+                        LastName = ba.Author.LastName
+                    }).ToList()
+                })
                 .ToListAsync();
 
             var scored = candidates
@@ -120,20 +138,35 @@ namespace eKnjiga.Services
                 {
                     int score = 0;
 
-                    foreach (var bc in b.BookCategories)
-                        if (favCats.TryGetValue(bc.CategoryId, out var w1)) score += w1;
+                    foreach (var catId in b.CategoryIds)
+                        if (favCats.TryGetValue(catId, out var w1))
+                            score += w1;
 
-                    foreach (var ba in b.BookAuthors)
-                        if (favAuthors.TryGetValue(ba.AuthorId, out var w2)) score += w2;
+                    foreach (var authorId in b.AuthorIds)
+                        if (favAuthors.TryGetValue(authorId, out var w2))
+                            score += w2;
 
                     score += (int)Math.Round(b.Rating * 10);
 
-                    return (Book: b, Score: score);
+                    return new
+                    {
+                        Book = new BookListResponse
+                        {
+                            Id = b.Id,
+                            Name = b.Name,
+                            Rating = b.Rating,
+                            RatingCount = b.RatingCount,
+                            CoverImage = b.CoverImage,
+                            Authors = b.Authors
+                        },
+                        Score = score,
+                        CreatedAt = b.CreatedAt
+                    };
                 })
                 .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Book.CreatedAt)
+                .ThenByDescending(x => x.CreatedAt)
                 .Take(count)
-                .Select(x => MapBookToResponse(x.Book))
+                .Select(x => x.Book)
                 .ToList();
 
             scored = scored.Where(x => !userBookSet.Contains(x.Id)).ToList();
@@ -141,18 +174,23 @@ namespace eKnjiga.Services
             return scored;
         }
 
-        public async Task<IReadOnlyList<BookResponse>> GetPersonalizedSimilarAsync(int userId, int bookId, int count = 10)
+        public async Task<IReadOnlyList<BookListResponse>> GetPersonalizedSimilarAsync(int userId, int bookId, int count = 10)
         {
             var target = await _ctx.Books
-                .Include(b => b.BookCategories)
-                .Include(b => b.BookAuthors)
-                .FirstOrDefaultAsync(b => b.Id == bookId);
+                .AsNoTracking()
+                .Where(b => b.Id == bookId)
+                .Select(b => new
+                {
+                    CategoryIds = b.BookCategories.Select(bc => bc.CategoryId).ToList(),
+                    AuthorIds = b.BookAuthors.Select(ba => ba.AuthorId).ToList()
+                })
+                .FirstOrDefaultAsync();
 
             if (target == null)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
-            var targetCatIds = target.BookCategories.Select(bc => bc.CategoryId).ToHashSet();
-            var targetAuthorIds = target.BookAuthors.Select(ba => ba.AuthorId).ToHashSet();
+            var targetCatIds = target.CategoryIds.ToHashSet();
+            var targetAuthorIds = target.AuthorIds.ToHashSet();
 
             var userBookIds = await _ctx.Orders
                 .Where(o => o.UserId == userId)
@@ -166,6 +204,7 @@ namespace eKnjiga.Services
             if (userBookIds.Count > 0)
             {
                 var userProfile = await _ctx.Books
+                    .AsNoTracking()
                     .Where(b => userBookIds.Contains(b.Id))
                     .Select(b => new
                     {
@@ -174,21 +213,37 @@ namespace eKnjiga.Services
                     })
                     .ToListAsync();
 
-                favCats = userProfile.SelectMany(x => x.CatIds)
-                                    .GroupBy(x => x)
-                                    .ToDictionary(g => g.Key, g => g.Count());
+                favCats = userProfile
+                    .SelectMany(x => x.CatIds)
+                    .GroupBy(x => x)
+                    .ToDictionary(g => g.Key, g => g.Count());
 
-                favAuthors = userProfile.SelectMany(x => x.AuthorIds)
-                                        .GroupBy(x => x)
-                                        .ToDictionary(g => g.Key, g => g.Count());
+                favAuthors = userProfile
+                    .SelectMany(x => x.AuthorIds)
+                    .GroupBy(x => x)
+                    .ToDictionary(g => g.Key, g => g.Count());
             }
 
             var candidates = await _ctx.Books
+                .AsNoTracking()
                 .Where(b => b.Id != bookId && !userBookIds.Contains(b.Id))
-                .Include(b => b.BookCategories)
-                .Include(b => b.BookAuthors)
-                .Include(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .Include(b => b.BookCategories).ThenInclude(bc => bc.Category)
+                .Select(b => new
+                {
+                    Id = b.Id,
+                    Name = b.Name,
+                    Rating = b.Rating,
+                    RatingCount = b.RatingCount,
+                    CoverImage = b.CoverImage,
+                    CreatedAt = b.CreatedAt,
+                    CategoryIds = b.BookCategories.Select(bc => bc.CategoryId).ToList(),
+                    AuthorIds = b.BookAuthors.Select(ba => ba.AuthorId).ToList(),
+                    Authors = b.BookAuthors.Select(ba => new AuthorResponse
+                    {
+                        Id = ba.Author.Id,
+                        FirstName = ba.Author.FirstName,
+                        LastName = ba.Author.LastName
+                    }).ToList()
+                })
                 .ToListAsync();
 
             var scored = candidates
@@ -196,32 +251,49 @@ namespace eKnjiga.Services
                 {
                     int score = 0;
 
-                    foreach (var bc in b.BookCategories)
-                        if (targetCatIds.Contains(bc.CategoryId)) score += 2;
+                    foreach (var catId in b.CategoryIds)
+                        if (targetCatIds.Contains(catId))
+                            score += 2;
 
-                    foreach (var ba in b.BookAuthors)
-                        if (targetAuthorIds.Contains(ba.AuthorId)) score += 3;
+                    foreach (var authorId in b.AuthorIds)
+                        if (targetAuthorIds.Contains(authorId))
+                            score += 3;
 
-                    foreach (var bc in b.BookCategories)
-                        if (favCats.TryGetValue(bc.CategoryId, out var w1)) score += w1;
+                    foreach (var catId in b.CategoryIds)
+                        if (favCats.TryGetValue(catId, out var w1))
+                            score += w1;
 
-                    foreach (var ba in b.BookAuthors)
-                        if (favAuthors.TryGetValue(ba.AuthorId, out var w2)) score += w2;
+                    foreach (var authorId in b.AuthorIds)
+                        if (favAuthors.TryGetValue(authorId, out var w2))
+                            score += w2;
 
                     score += (int)Math.Round(b.Rating * 10);
 
-                    return (Book: b, Score: score);
+                    return new
+                    {
+                        Book = new BookListResponse
+                        {
+                            Id = b.Id,
+                            Name = b.Name,
+                            Rating = b.Rating,
+                            RatingCount = b.RatingCount,
+                            CoverImage = b.CoverImage,
+                            Authors = b.Authors
+                        },
+                        Score = score,
+                        CreatedAt = b.CreatedAt
+                    };
                 })
                 .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Book.CreatedAt)
+                .ThenByDescending(x => x.CreatedAt)
                 .Take(count)
-                .Select(x => MapBookToResponse(x.Book))
+                .Select(x => x.Book)
                 .ToList();
 
             return scored;
         }
 
-        public async Task<IReadOnlyList<BookResponse>> GetRecommendedCfKnnAsync(
+        public async Task<IReadOnlyList<BookListResponse>> GetRecommendedCfKnnAsync(
             int userId,
             int count = 10,
             int k = 25,
@@ -234,16 +306,15 @@ namespace eKnjiga.Services
                 .ToListAsync();
 
             if (targetRatingsList.Count == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
             var targetRatings = targetRatingsList.ToDictionary(x => x.BookId, x => x.Rating);
             var targetBookIds = targetRatings.Keys.ToHashSet();
 
             var normU = Math.Sqrt(targetRatings.Values.Sum(v => v * v));
             if (normU == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
-            // 2) Other users' reviews on the same books (overlap)
             var overlap = await _ctx.Reviews
                 .AsNoTracking()
                 .Where(r => r.UserId != userId && targetBookIds.Contains(r.BookId))
@@ -251,9 +322,8 @@ namespace eKnjiga.Services
                 .ToListAsync();
 
             if (overlap.Count == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
-            // 3) Cosine similarity per neighbor
             var dot = new Dictionary<int, double>();
             var normV2 = new Dictionary<int, double>();
 
@@ -261,8 +331,11 @@ namespace eKnjiga.Services
             {
                 var uRating = targetRatings[r.BookId];
 
-                if (!dot.ContainsKey(r.UserId)) dot[r.UserId] = 0;
-                if (!normV2.ContainsKey(r.UserId)) normV2[r.UserId] = 0;
+                if (!dot.ContainsKey(r.UserId))
+                    dot[r.UserId] = 0;
+
+                if (!normV2.ContainsKey(r.UserId))
+                    normV2[r.UserId] = 0;
 
                 dot[r.UserId] += uRating * r.Rating;
                 normV2[r.UserId] += r.Rating * r.Rating;
@@ -282,14 +355,11 @@ namespace eKnjiga.Services
                 .ToList();
 
             if (sims.Count == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
             var neighborIds = sims.Select(x => x.UserId).ToList();
             var simByUser = sims.ToDictionary(x => x.UserId, x => x.Sim);
 
-
-            // 4) Candidate books: rated by neighbors, not rated by target,
-            //    and NOT already owned by target (UserBooks)
             var neighborReviewsQuery = _ctx.Reviews
                 .AsNoTracking()
                 .Where(r =>
@@ -307,11 +377,9 @@ namespace eKnjiga.Services
                 .Select(r => new { r.BookId, r.UserId, r.Rating })
                 .ToListAsync();
 
-
             if (neighborReviews.Count == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
-            // 5) Weighted prediction per book
             var num = new Dictionary<int, double>();
             var den = new Dictionary<int, double>();
 
@@ -319,8 +387,11 @@ namespace eKnjiga.Services
             {
                 var sim = simByUser[r.UserId];
 
-                if (!num.ContainsKey(r.BookId)) num[r.BookId] = 0;
-                if (!den.ContainsKey(r.BookId)) den[r.BookId] = 0;
+                if (!num.ContainsKey(r.BookId))
+                    num[r.BookId] = 0;
+
+                if (!den.ContainsKey(r.BookId))
+                    den[r.BookId] = 0;
 
                 num[r.BookId] += sim * r.Rating;
                 den[r.BookId] += Math.Abs(sim);
@@ -340,31 +411,56 @@ namespace eKnjiga.Services
                 .ToList();
 
             if (predicted.Count == 0)
-                return new List<BookResponse>();
+                return new List<BookListResponse>();
 
             var predictedIds = predicted.Select(x => x.BookId).ToList();
             var scoreByBook = predicted.ToDictionary(x => x.BookId, x => x.Score);
 
-            // 6) Load books and return top-N by predicted score
             var books = await _ctx.Books
-                .Include(b => b.BookAuthors).ThenInclude(ba => ba.Author)
-                .Include(b => b.BookCategories).ThenInclude(bc => bc.Category)
                 .AsNoTracking()
                 .Where(b => predictedIds.Contains(b.Id))
+                .Select(b => new
+                {
+                    Id = b.Id,
+                    Name = b.Name,
+                    Rating = b.Rating,
+                    RatingCount = b.RatingCount,
+                    CoverImage = b.CoverImage,
+                    CreatedAt = b.CreatedAt,
+                    Authors = b.BookAuthors.Select(ba => new AuthorResponse
+                    {
+                        Id = ba.Author.Id,
+                        FirstName = ba.Author.FirstName,
+                        LastName = ba.Author.LastName
+                    }).ToList()
+                })
                 .ToListAsync();
 
             var ordered = books
-                .Select(b => new { Book = b, Score = scoreByBook.GetValueOrDefault(b.Id, 0) })
+                .Select(b => new
+                {
+                    Book = new BookListResponse
+                    {
+                        Id = b.Id,
+                        Name = b.Name,
+                        Rating = b.Rating,
+                        RatingCount = b.RatingCount,
+                        CoverImage = b.CoverImage,
+                        Authors = b.Authors
+                    },
+                    Score = scoreByBook.GetValueOrDefault(b.Id, 0),
+                    CreatedAt = b.CreatedAt
+                })
                 .OrderByDescending(x => x.Score)
-                .ThenByDescending(x => x.Book.CreatedAt)
+                .ThenByDescending(x => x.CreatedAt)
                 .Take(count)
-                .Select(x => MapBookToResponse(x.Book))
+                .Select(x => x.Book)
                 .ToList();
 
             return ordered;
         }
 
-        private BookResponse MapToResponse(Database.Book b)
-            => _mapper.Map<BookResponse>(b);
+        private BookListResponse MapToResponse(Database.Book b)
+            => _mapper.Map<BookListResponse>(b);
     }
 }

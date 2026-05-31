@@ -16,6 +16,7 @@ namespace eKnjiga.Services.Database
         public int BookId { get; set; }
         [ForeignKey("BookId")]
         public Book Book { get; set; } = null!;
+        public bool IsPdfPurchase { get; set; }
 
         public int Quantity { get; set; }
 

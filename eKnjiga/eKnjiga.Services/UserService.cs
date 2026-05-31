@@ -10,7 +10,8 @@ using System;
 using System.Security.Cryptography;
 using System.Collections.Generic;
 using eKnjiga.Model.Messages;   
-using eKnjiga.Services.Messaging; 
+using eKnjiga.Services.Messaging;
+using Microsoft.AspNetCore.Http;
 
 namespace eKnjiga.Services
 {
@@ -155,13 +156,7 @@ namespace eKnjiga.Services
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
-            var msg = new EmailMessage(
-                to: user.Email,
-                subject: "Dobrodošli na eKnjiga",
-                html: $"<h2>Zdravo {user.FirstName}</h2><p>Hvala na registraciji, vaš profil je kreiran.</p>",
-                text: $"Zdravo {user.FirstName}, hvala na registraciji, vaš profil je kreiran."
-            );
-            await _emailQueue.EnqueueAsync(msg);
+            await _emailQueue.EnqueueAsync(EmailTemplates.Welcome(user));
 
             return await GetByIdAsync(user.Id) ?? throw new InvalidOperationException("Kreiranje korisnika nije uspjelo.");
         }
@@ -223,13 +218,17 @@ namespace eKnjiga.Services
                 CreatedAt = user.CreatedAt,
                 BirthDate = user.BirthDate,
                 Gender = user.Gender,
-                ProfileImage = user.ProfileImage,
+                ProfileImage = string.IsNullOrEmpty(user.ProfileImage)
+                ? "/images/default-user.jpg"
+                : user.ProfileImage,
+
                 Role = user.Role != null ? new RoleResponse
                 {
                     Id = user.Role.Id,
                     Name = user.Role.Name,
                     Description = user.Role.Description
                 } : null,
+
                 City = user.City != null ? new CityResponse
                 {
                     Id = user.City.Id,
@@ -241,29 +240,43 @@ namespace eKnjiga.Services
                         Code = user.City.Country.Code
                     } : null
                 } : null,
-                UserBooks = user.UserBooks?.Select(ba => new BookResponse
-                {
-                    Id = ba.Book.Id,
-                    Name = ba.Book.Name,
-                    Description = ba.Book.Description,
-                    Price = ba.Book.Price,
-                    CoverImage = ba.Book.CoverImage,
-                    PdfFile = ba.Book.PdfFile,
-                    Rating = ba.Book.Rating,
-                    RatingCount = ba.Book.RatingCount,
-                    CreatedAt = ba.Book.CreatedAt,
-                    Authors = ba.Book.BookAuthors?.Select(ba2 => new AuthorResponse
+
+                UserBooks = user.UserBooks?
+                    .Select(ub => new UserBookResponse
                     {
-                        Id = ba2.Author.Id,
-                        FirstName = ba2.Author.FirstName,
-                        LastName = ba2.Author.LastName
-                    }).ToList() ?? new List<AuthorResponse>(),
-                    Categories = ba.Book.BookCategories?.Select(bc => new CategoryResponse
-                    {
-                        Id = bc.Category.Id,
-                        Name = bc.Category.Name
-                    }).ToList() ?? new List<CategoryResponse>()
-                }).ToList() ?? new List<BookResponse>()
+                        BookId = ub.BookId,
+                        IsFavorite = ub.IsFavorite,
+
+                        Book = new BookResponse
+                        {
+                            Id = ub.Book.Id,
+                            Name = ub.Book.Name,
+                            Description = ub.Book.Description,
+                            Price = ub.Book.Price,
+                            CoverImage = ub.Book.CoverImage,
+                            Rating = ub.Book.Rating,
+                            RatingCount = ub.Book.RatingCount,
+                            CreatedAt = ub.Book.CreatedAt,
+
+                            Authors = ub.Book.BookAuthors?
+                                .Select(ba => new AuthorResponse
+                                {
+                                    Id = ba.Author.Id,
+                                    FirstName = ba.Author.FirstName,
+                                    LastName = ba.Author.LastName
+                                })
+                                .ToList() ?? new List<AuthorResponse>(),
+
+                            Categories = ub.Book.BookCategories?
+                                .Select(bc => new CategoryResponse
+                                {
+                                    Id = bc.Category.Id,
+                                    Name = bc.Category.Name
+                                })
+                                .ToList() ?? new List<CategoryResponse>()
+                        }
+                    })
+                    .ToList() ?? new List<UserBookResponse>()
             };
         }
 
@@ -325,19 +338,96 @@ namespace eKnjiga.Services
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
+            await _emailQueue.EnqueueAsync(EmailTemplates.Welcome(user));
+
             return await GetByIdAsync(user.Id) ?? throw new InvalidOperationException("Kreiranje korisnika nije uspjelo.");
         }
 
-        public async Task<UserResponse?> UpdateProfileImageAsync(int id, byte[] imageBytes)
+        private void DeleteOldProfileImage(string? relativePath)
+        {
+            if (string.IsNullOrWhiteSpace(relativePath))
+                return;
+
+            if (relativePath.Equals("/images/default-user.jpg", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var trimmedPath = relativePath.TrimStart('/');
+            var fullPath = Path.Combine(
+                Directory.GetCurrentDirectory(),
+                "wwwroot",
+                trimmedPath.Replace('/', Path.DirectorySeparatorChar)
+            );
+
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+            }
+        }
+        private async Task<string> SaveProfileImageAsync(IFormFile file)
+        {
+            var folder = Path.Combine(
+                Directory.GetCurrentDirectory(),
+                "wwwroot",
+                "images",
+                "users"
+            );
+
+            if (!Directory.Exists(folder))
+                Directory.CreateDirectory(folder);
+
+            var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName).ToLower()}";
+            var fullPath = Path.Combine(folder, fileName);
+
+            using (var stream = new FileStream(fullPath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            return $"/images/users/{fileName}";
+        }
+
+        public async Task<UserResponse?> UpdateProfileImageAsync(int id, IFormFile file)
         {
             var user = await _context.Users.FirstOrDefaultAsync(x => x.Id == id && !x.IsDeleted);
             if (user == null)
                 return null;
 
-            user.ProfileImage = imageBytes;
+            if (file == null || file.Length == 0)
+                throw new InvalidOperationException("Slika nije odabrana.");
+
+            DeleteOldProfileImage(user.ProfileImage);
+
+            var imagePath = await SaveProfileImageAsync(file);
+            user.ProfileImage = imagePath;
+
             await _context.SaveChangesAsync();
 
             return await GetByIdAsync(id);
         }
+
+        public async Task SetFavoriteAsync(int userId, int bookId, bool isFavorite)
+        {
+            var userBook = await _context.UserBooks
+                .FirstOrDefaultAsync(x => x.UserId == userId && x.BookId == bookId);
+
+            if (userBook == null)
+                throw new KeyNotFoundException("Knjiga nije pronađena u korisnikovim knjigama.");
+
+            userBook.IsFavorite = isFavorite;
+
+            await _context.SaveChangesAsync();
+        }
+
+        public async Task<bool> GetFavoriteAsync(int userId, int bookId)
+        {
+            var userBook = await _context.UserBooks
+                .FirstOrDefaultAsync(x => x.UserId == userId && x.BookId == bookId);
+
+            if (userBook == null)
+                throw new KeyNotFoundException("Knjiga nije pronađena u korisnikovim knjigama.");
+
+            return userBook.IsFavorite;
+        }
+
     }
 }

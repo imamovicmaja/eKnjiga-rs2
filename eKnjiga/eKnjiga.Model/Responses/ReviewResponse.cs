@@ -8,6 +8,6 @@ namespace eKnjiga.Model.Responses
         public double Rating { get; set; }
         public DateTime CreatedAt { get; set; }
         public BookResponse? Book { get; set; }
-        public UserResponse? User { get; set; }
+        public PublicUserResponse? User { get; set; }
     }
 }

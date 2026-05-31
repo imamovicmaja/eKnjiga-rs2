@@ -1,19 +1,93 @@
+using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
 using MapsterMapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using System;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
+using System.Threading.Tasks;
 
 namespace eKnjiga.Services
 {
     public class CommentService : BaseCRUDService<CommentResponse, CommentSearchObject, Database.Comment, CommentUpsertRequest, CommentUpsertRequest>, ICommentService
     {
-        public CommentService(eKnjigaDbContext context, IMapper mapper) : base(context, mapper) {}
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public CommentService(eKnjigaDbContext context, IMapper mapper, IHttpContextAccessor httpContextAccessor)
+            : base(context, mapper)
+        {
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        private int? GetCurrentUserId()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            var userIdClaim =
+                user?.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+                user?.FindFirst("UserId")?.Value ??
+                user?.FindFirst("Id")?.Value;
+
+            if (int.TryParse(userIdClaim, out var userId))
+                return userId;
+
+            return null;
+        }
+
+        private bool IsAdmin()
+        {
+            var user = _httpContextAccessor.HttpContext?.User;
+
+            if (user == null)
+                return false;
+
+            return user.IsInRole("Admin") ||
+                   user.Claims.Any(c =>
+                       (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
+                       c.Value == "Admin");
+        }
+
+        private PublicUserResponse? MapToPublicUserResponse(Database.User? user)
+        {
+            if (user == null)
+                return null;
+
+            return new PublicUserResponse
+            {
+                Id = user.Id,
+                Username = user.Username,
+                FirstName = user.FirstName,
+                LastName = user.LastName,
+                ProfileImage = string.IsNullOrEmpty(user.ProfileImage)
+                ? "/images/default-user.jpg"
+                : user.ProfileImage
+            };
+        }
+
+        private void EnsureUserAuthenticated()
+        {
+            if (!GetCurrentUserId().HasValue)
+                throw new UnauthorizedAccessException("User is not authenticated.");
+        }
+
+        private void EnsureCanModifyComment(Database.Comment comment)
+        {
+            if (IsAdmin())
+                return;
+
+            var currentUserId = GetCurrentUserId();
+
+            if (!currentUserId.HasValue)
+                throw new UnauthorizedAccessException("User is not authenticated.");
+
+            if (comment.UserId != currentUserId.Value)
+                throw new UnauthorizedAccessException("You are not allowed to modify this comment.");
+        }
 
         protected override IQueryable<Comment> ApplyFilter(IQueryable<Comment> query, CommentSearchObject search)
         {
@@ -21,11 +95,11 @@ namespace eKnjiga.Services
                 query = query.Where(c => c.Content.Contains(search.Content));
 
             if (search.UserId.HasValue)
-                query = query.Where(b => b.UserId == search.UserId.Value);
-            
+                query = query.Where(c => c.UserId == search.UserId.Value);
+
             return query;
         }
-        
+
         public override async Task<PagedResult<CommentResponse>> GetAsync(CommentSearchObject search)
         {
             var query = _context.Comments
@@ -55,6 +129,7 @@ namespace eKnjiga.Services
                 {
                     query = query.Skip(search.Page.Value * search.PageSize.Value);
                 }
+
                 if (search.PageSize.HasValue)
                 {
                     query = query.Take(search.PageSize.Value);
@@ -62,6 +137,7 @@ namespace eKnjiga.Services
             }
 
             var list = await query.ToListAsync();
+
             return new PagedResult<CommentResponse>
             {
                 Items = list.Select(MapToResponse).ToList(),
@@ -84,7 +160,39 @@ namespace eKnjiga.Services
                 .Include(c => c.Reactions)
                 .FirstOrDefaultAsync(c => c.Id == id);
 
-            return comment != null ? MapToResponse(comment) : null;
+            if (comment == null)
+                throw new KeyNotFoundException("Comment not found.");
+
+            return MapToResponse(comment);
+        }
+
+        protected override async Task BeforeInsert(Comment entity, CommentUpsertRequest request)
+        {
+            EnsureUserAuthenticated();
+
+            if (!IsAdmin())
+            {
+                var currentUserId = GetCurrentUserId()!.Value;
+                entity.UserId = currentUserId;
+                request.UserId = currentUserId;
+            }
+
+            await Task.CompletedTask;
+        }
+
+        protected override async Task BeforeUpdate(Comment entity, CommentUpsertRequest request)
+        {
+            EnsureUserAuthenticated();
+            EnsureCanModifyComment(entity);
+
+            if (!IsAdmin())
+            {
+                var currentUserId = GetCurrentUserId()!.Value;
+                entity.UserId = currentUserId;
+                request.UserId = currentUserId;
+            }
+
+            await Task.CompletedTask;
         }
 
         private CommentResponse MapToResponse(Database.Comment comment)
@@ -96,6 +204,7 @@ namespace eKnjiga.Services
                 CreatedAt = comment.CreatedAt,
                 Likes = comment.Reactions.Count(r => r.IsLike),
                 Dislikes = comment.Reactions.Count(r => !r.IsLike),
+
                 Replies = comment.Replies?.Select(ca => new CommentAnswerResponse
                 {
                     Id = ca.Id,
@@ -103,81 +212,28 @@ namespace eKnjiga.Services
                     CreatedAt = ca.CreatedAt,
                     Likes = ca.Reactions.Count(r => r.IsLike),
                     Dislikes = ca.Reactions.Count(r => !r.IsLike),
-                    User = ca.User != null ? new UserResponse
-                    {
-                        Id = ca.User.Id,
-                        FirstName = ca.User.FirstName,
-                        LastName = ca.User.LastName,
-                        Email = ca.User.Email,
-                        Username = ca.User.Username,
-                        PhoneNumber = ca.User.PhoneNumber,
-                        CreatedAt = ca.User.CreatedAt,
-                        BirthDate = ca.User.BirthDate,
-                        Gender = ca.User.Gender,
-                        ProfileImage = ca.User.ProfileImage,
-                        Role = ca.User.Role != null ? new RoleResponse
-                        {
-                            Id = ca.User.Role.Id,
-                            Name = ca.User.Role.Name,
-                            Description = ca.User.Role.Description
-                        } : null,
-                        City = ca.User.City != null ? new CityResponse
-                        {
-                            Id = ca.User.City.Id,
-                            Name = ca.User.City.Name,
-                            Country = ca.User.City.Country != null ? new CountryResponse
-                            {
-                                Id = ca.User.City.Country.Id,
-                                Name = ca.User.City.Country.Name,
-                                Code = ca.User.City.Country.Code
-                            } : null
-                        } : null
-                    } : null
+                    User = MapToPublicUserResponse(ca.User)
                 }).ToList() ?? new List<CommentAnswerResponse>(),
-                User = comment.User != null ? new UserResponse
-                {
-                    Id = comment.User.Id,
-                    FirstName = comment.User.FirstName,
-                    LastName = comment.User.LastName,
-                    Email = comment.User.Email,
-                    Username = comment.User.Username,
-                    PhoneNumber = comment.User.PhoneNumber,
-                    CreatedAt = comment.User.CreatedAt,
-                    BirthDate = comment.User.BirthDate,
-                    Gender = comment.User.Gender,
-                    ProfileImage = comment.User.ProfileImage,
-                    Role = comment.User.Role != null ? new RoleResponse
-                    {
-                        Id = comment.User.Role.Id,
-                        Name = comment.User.Role.Name,
-                        Description = comment.User.Role.Description
-                    } : null,
-                    City = comment.User.City != null ? new CityResponse
-                    {
-                        Id = comment.User.City.Id,
-                        Name = comment.User.City.Name,
-                        Country = comment.User.City.Country != null ? new CountryResponse
-                        {
-                            Id = comment.User.City.Country.Id,
-                            Name = comment.User.City.Country.Name,
-                            Code = comment.User.City.Country.Code
-                        } : null
-                    } : null
-                } : null
+
+                User = MapToPublicUserResponse(comment.User)
             };
         }
-
         public override async Task<bool> DeleteAsync(int id)
         {
+            EnsureUserAuthenticated();
+
             var comment = await _context.Comments.FindAsync(id);
             if (comment == null)
-                throw new Exception("Komentar nije pronađen");
+                throw new KeyNotFoundException("Comment not found.");
+
+            EnsureCanModifyComment(comment);
 
             var replies = _context.CommentAnswers
                 .Where(a => a.ParentCommentId == id)
                 .ToList();
 
             var replyIds = replies.Select(r => r.Id).ToList();
+
             var replyReactions = _context.CommentReactions
                 .Where(r => r.CommentAnswerId != null && replyIds.Contains(r.CommentAnswerId.Value));
             _context.CommentReactions.RemoveRange(replyReactions);
@@ -193,6 +249,5 @@ namespace eKnjiga.Services
             await _context.SaveChangesAsync();
             return true;
         }
-
     }
 }

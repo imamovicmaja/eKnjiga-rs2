@@ -1,5 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:io';
 
 import '../models/city.dart';
 import '../models/country.dart';
@@ -13,6 +14,9 @@ import '../models/review.dart';
 import '../models/comment.dart';
 import '../models/commentAnswer.dart';
 import '../models/userReport.dart';
+
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 
 import '../models/order.dart';
 
@@ -31,6 +35,10 @@ class ApiService {
   );
   static String _authHeader = '';
 
+  static String? roleName;
+  static bool get isAdmin => roleName == "Admin";
+  static bool get isEmployee => roleName == "Employee";
+
   static String _extractErrorMessage(
     http.Response response,
     String defaultMessage,
@@ -46,36 +54,44 @@ class ApiService {
   }
 
   static Future<void> login(String username, String password) async {
-    final response = await http.post(
-      Uri.parse('$_apiBase/Users/login'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
-    );
+  final response = await http.post(
+    Uri.parse('$_apiBase/Users/login'),
+    headers: {'Content-Type': 'application/json'},
+    body: jsonEncode({'username': username, 'password': password}),
+  );
 
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception('Greška pri prijavi: ${response.body}');
-    }
-
-    final data = jsonDecode(response.body);
-    final roleName = data['role']?['name'];
-
-    if (roleName == null) {
-      throw ApiException('Nije moguće pronaći korisničku ulogu.');
-    }
-
-    if (roleName != 'Admin') {
-      throw ApiException(
-        'Pristup odbijen! Samo admin korisnici mogu se prijaviti.',
-      );
-    }
-
-    final basicAuth =
-        'Basic ${base64Encode(utf8.encode('$username:$password'))}';
-    _authHeader = basicAuth;
+  if (response.statusCode != 200 && response.statusCode != 201) {
+    throw Exception('Greška pri prijavi: ${response.body}');
   }
 
-  // ---------------- CITIES ----------------
+  final data = jsonDecode(response.body);
 
+  roleName = data['role']?['name'];
+
+  if (roleName == null) {
+    throw ApiException('Nije moguće pronaći korisničku ulogu.');
+  }
+
+  final basicAuth =
+      'Basic ${base64Encode(utf8.encode('$username:$password'))}';
+  _authHeader = basicAuth;
+}
+  
+  //-----------------PDF---------------------
+  static Future<Uint8List> getBookPdf(int id) async {
+  final response = await http.get(
+    Uri.parse('$_apiBase/Book/$id/pdf'),
+    headers: {'Authorization': _authHeader},
+  );
+
+  if (response.statusCode != 200) {
+    throw Exception('Greška pri dohvaćanju PDF-a');
+  }
+
+  return response.bodyBytes;
+}
+
+  // ---------------- CITIES ----------------
   static Future<List<City>> fetchCities({
     String? name,
     int? zipCode,
@@ -863,38 +879,45 @@ class ApiService {
   }
 
   static Future<void> deleteBook(int id) async {
-    final response = await http.delete(
-      Uri.parse('$_apiBase/Book/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
-    );
+  final response = await http.delete(
+    Uri.parse('$_apiBase/Book/$id'),
+    headers: {
+      'Authorization': _authHeader,
+    },
+  );
 
-    if (response.statusCode != 200) {
-      final msg = _extractErrorMessage(response, 'Greška pri brisanju knjige.');
-      throw ApiException(msg);
-    }
+  if (response.statusCode != 200 && response.statusCode != 204) {
+    final msg = _extractErrorMessage(response, 'Greška pri brisanju knjige.');
+    throw ApiException(msg);
+  }
+}
+
+  static Future<Map<String, dynamic>> createBook(
+  Map<String, dynamic> bookData,
+) async {
+  final response = await http.post(
+    Uri.parse('$_apiBase/Book'),
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': _authHeader,
+    },
+    body: jsonEncode(bookData),
+  );
+
+  if (response.statusCode != 200 && response.statusCode != 201) {
+    final msg = _extractErrorMessage(
+      response,
+      'Greška pri dodavanju knjige.',
+    );
+    throw ApiException(msg);
   }
 
-  static Future<void> createBook(Map<String, dynamic> bookData) async {
-    final response = await http.post(
-      Uri.parse('$_apiBase/Book'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
-      body: jsonEncode(bookData),
-    );
-
-    if (response.statusCode != 200 && response.statusCode != 201) {
-      final msg = _extractErrorMessage(
-        response,
-        'Greška pri dodavanju knjige.',
-      );
-      throw ApiException(msg);
-    }
+  if (response.body.isEmpty) {
+    throw ApiException('Knjiga je dodana, ali API nije vratio podatke.');
   }
+
+  return jsonDecode(response.body) as Map<String, dynamic>;
+}
 
   static Future<void> updateBook(
     int id,
@@ -917,6 +940,88 @@ class ApiService {
       throw ApiException(msg);
     }
   }
+
+  static Future<void> uploadBookCover(
+  int bookId,
+  Uint8List bytes,
+  String fileName,
+  ) async {
+  final uri = Uri.parse('$_apiBase/Book/$bookId/cover');
+
+  final request = http.MultipartRequest('PUT', uri);
+
+  request.headers['Authorization'] = _authHeader;
+
+  request.files.add(
+    http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: fileName,
+    ),
+  );
+
+  final response = await request.send();
+
+  if (response.statusCode != 200) {
+    final body = await response.stream.bytesToString();
+    throw ApiException('Greška pri uploadu slike: $body');
+    }
+  }
+
+  static Future<void> uploadBookPdf(
+  int bookId,
+  Uint8List bytes,
+  String fileName,
+) async {
+  final uri = Uri.parse('$_apiBase/Book/$bookId/pdf-upload');
+
+  final request = http.MultipartRequest('PUT', uri);
+
+  request.headers['Authorization'] = _authHeader;
+
+  request.files.add(
+    http.MultipartFile.fromBytes(
+      'file',
+      bytes,
+      filename: fileName,
+    ),
+  );
+
+  final response = await request.send();
+
+  if (response.statusCode != 200) {
+    final body = await response.stream.bytesToString();
+    throw ApiException('Greška pri uploadu PDF-a: $body');
+  }
+}
+
+static String getImageUrl(String? relativeUrl) {
+  if (relativeUrl == null || relativeUrl.isEmpty) return '';
+
+  if (relativeUrl.startsWith('http')) return relativeUrl;
+
+  final uri = Uri.parse(_apiBase);
+  final base = '${uri.scheme}://${uri.host}:${uri.port}';
+
+  return '$base$relativeUrl';
+}
+
+static Future<Book> getBookById(int id) async {
+  final response = await http.get(
+    Uri.parse('$_apiBase/Book/$id'),
+    headers: {
+      'Authorization': _authHeader,
+    },
+  );
+
+  if (response.statusCode != 200) {
+    throw Exception('Greška pri dohvaćanju knjige');
+  }
+
+  final data = jsonDecode(response.body);
+  return Book.fromJson(data);
+}
+
 
   // ---------------- COMMENTS ----------------
 

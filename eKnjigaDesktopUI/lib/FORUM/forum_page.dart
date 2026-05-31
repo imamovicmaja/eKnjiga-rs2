@@ -5,6 +5,7 @@ import '../NARUDZBE/order_page.dart';
 import '../KNJIGE/books_page.dart';
 import '../KORISNICI/user_page.dart';
 import '../LOGIN/login_page.dart';
+import '../IZVJESTAJ/reports_page.dart';
 
 import '../models/comment.dart';
 import '../models/commentAnswer.dart';
@@ -87,6 +88,20 @@ class _ForumPageState extends State<ForumPage> {
     super.dispose();
   }
 
+  InputDecoration _filterDecoration(String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon),
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.9),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    );
+  }
+
   Future<void> _loadFilterUsers() async {
     try {
       if (mounted) setState(() => _loadingFilterUsers = true);
@@ -116,7 +131,6 @@ class _ForumPageState extends State<ForumPage> {
     try {
       if (mounted) setState(() => _loadingComments = true);
 
-      // SVE filtriranje prebačeno na backend
       final fetched = await ApiService.fetchComments(
         content: content,
         userId: userId,
@@ -138,7 +152,6 @@ class _ForumPageState extends State<ForumPage> {
     try {
       if (mounted) setState(() => _loadingCommentAnswers = true);
 
-      // SVE filtriranje prebačeno na backend
       final fetched = await ApiService.fetchCommentAnswers(
         content: content,
         userId: userId,
@@ -162,7 +175,6 @@ class _ForumPageState extends State<ForumPage> {
     try {
       if (mounted) setState(() => _loadingReports = true);
 
-      // SVE filtriranje prebačeno na backend
       final fetched = await ApiService.fetchUserReports(
         reason: reason,
         status: status,
@@ -202,6 +214,28 @@ class _ForumPageState extends State<ForumPage> {
         );
       }
     });
+  }
+
+  void _resetFilters() {
+    _commentSearchCtrl.clear();
+    _answerSearchCtrl.clear();
+    _reportSearchCtrl.clear();
+
+    setState(() {
+      _selectedCommentUserId = null;
+      _selectedAnswerUserId = null;
+      _selectedReportStatus = null;
+      _selectedReportedUserId = null;
+      _selectedReportedByUserId = null;
+    });
+
+    if (selectedSidebar == "KOMENTARI") {
+      loadComments();
+    } else if (selectedSidebar == "ODGOVORI") {
+      loadCommentAnswers();
+    } else {
+      loadUserReports();
+    }
   }
 
   void deleteComment(int id) async {
@@ -372,77 +406,11 @@ class _ForumPageState extends State<ForumPage> {
           ),
           Column(
             children: [
-              Container(
-                height: 70,
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                color: Colors.white.withOpacity(0.8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        const Text(
-                          "eKnjiga",
-                          style: TextStyle(
-                            fontSize: 30,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'Georgia',
-                          ),
-                        ),
-                        const SizedBox(width: 50),
-                        navTab("KORISNICI", context),
-                        const SizedBox(width: 32),
-                        navTab("KNJIGE", context),
-                        const SizedBox(width: 32),
-                        navTab("NARUDŽBE", context),
-                        const SizedBox(width: 32),
-                        navTab("FORUM", context, isActive: true),
-                      ],
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushAndRemoveUntil(
-                          context,
-                          MaterialPageRoute(builder: (_) => const LoginPage()),
-                          (route) => false,
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(
-                          255,
-                          181,
-                          156,
-                          74,
-                        ),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                      ),
-                      child: const Text("Odjavi se"),
-                    ),
-                  ],
-                ),
-              ),
+              _buildHeader(context),
               Expanded(
                 child: Row(
                   children: [
-                    Container(
-                      width: 180,
-                      color: Colors.white.withOpacity(0.8),
-                      padding: const EdgeInsets.only(top: 32, left: 5),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          sidebarOption("KOMENTARI", Icons.comment),
-                          const SizedBox(height: 24),
-                          sidebarOption("ODGOVORI", Icons.reply),
-                          const SizedBox(height: 24),
-                          sidebarOption("PRIJAVE", Icons.report),
-                        ],
-                      ),
-                    ),
+                    _buildSidebar(),
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(
@@ -451,58 +419,12 @@ class _ForumPageState extends State<ForumPage> {
                         ),
                         child: Column(
                           children: [
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                SizedBox(
-                                  width: 300,
-                                  child: TextField(
-                                    controller: activeSearchCtrl,
-                                    onChanged: (_) => _onSearchOrFilterChanged(),
-                                    decoration: InputDecoration(
-                                      hintText: searchHint,
-                                      prefixIcon: const Icon(Icons.search),
-                                      filled: true,
-                                      fillColor: Colors.white.withOpacity(0.9),
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                      ),
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                ..._buildFiltersWidgets(),
-                                TextButton.icon(
-                                  onPressed: () {
-                                    _commentSearchCtrl.clear();
-                                    _answerSearchCtrl.clear();
-                                    _reportSearchCtrl.clear();
-
-                                    setState(() {
-                                      _selectedCommentUserId = null;
-                                      _selectedAnswerUserId = null;
-                                      _selectedReportStatus = null;
-                                      _selectedReportedUserId = null;
-                                      _selectedReportedByUserId = null;
-                                    });
-
-                                    if (selectedSidebar == "KOMENTARI") {
-                                      loadComments();
-                                    } else if (selectedSidebar == "ODGOVORI") {
-                                      loadCommentAnswers();
-                                    } else {
-                                      loadUserReports();
-                                    }
-                                  },
-                                  icon: const Icon(Icons.restart_alt),
-                                  label: const Text("Reset"),
-                                ),
-                              ],
-                            ),
+                            _buildTopFilters(activeSearchCtrl, searchHint),
+                            const SizedBox(height: 8),
+                            if (_loadingComments ||
+                                _loadingCommentAnswers ||
+                                _loadingReports)
+                              const LinearProgressIndicator(minHeight: 3),
                             const SizedBox(height: 16),
                             Expanded(child: _buildContent()),
                           ],
@@ -519,32 +441,150 @@ class _ForumPageState extends State<ForumPage> {
     );
   }
 
-  List<Widget> _buildFiltersWidgets() {
+  Widget _buildHeader(BuildContext context) {
+    return Container(
+      height: 70,
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      color: Colors.white.withOpacity(0.8),
+      child: Row(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  const Text(
+                    "eKnjiga",
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Georgia',
+                    ),
+                  ),
+                  const SizedBox(width: 50),
+                  navTab("KORISNICI", context),
+                  const SizedBox(width: 32),
+                  navTab("KNJIGE", context),
+                  const SizedBox(width: 32),
+                  navTab("NARUDŽBE", context),
+                  const SizedBox(width: 32),
+                  navTab("FORUM", context, isActive: true),
+                  const SizedBox(width: 32),
+                  navTab("IZVJEŠTAJI", context),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          TextButton(
+            onPressed: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color.fromARGB(255, 181, 156, 74),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 12,
+              ),
+            ),
+            child: const Text("Odjavi se"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebar() {
+    return Container(
+      width: 180,
+      color: Colors.white.withOpacity(0.8),
+      padding: const EdgeInsets.only(top: 32, left: 5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          sidebarOption("KOMENTARI", Icons.comment),
+          const SizedBox(height: 24),
+          sidebarOption("ODGOVORI", Icons.reply),
+          const SizedBox(height: 24),
+          sidebarOption("PRIJAVE", Icons.report),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopFilters(
+    TextEditingController activeSearchCtrl,
+    String searchHint,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isNarrow = constraints.maxWidth < 1100;
+        final double fieldWidth =
+            isNarrow ? constraints.maxWidth.clamp(240.0, 420.0) : 260;
+
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              SizedBox(
+                width: fieldWidth,
+                child: TextField(
+                  controller: activeSearchCtrl,
+                  onChanged: (_) => _onSearchOrFilterChanged(),
+                  decoration: InputDecoration(
+                    hintText: searchHint,
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.9),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              ..._buildFiltersWidgets(fieldWidth),
+              TextButton.icon(
+                onPressed: _resetFilters,
+                icon: const Icon(Icons.restart_alt),
+                label: const Text("Reset"),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildFiltersWidgets(double fieldWidth) {
     if (selectedSidebar == "KOMENTARI") {
       return [
         SizedBox(
-          width: 240,
+          width: fieldWidth,
           child: DropdownButtonFormField<int?>(
             value: _selectedCommentUserId,
-            decoration: InputDecoration(
-              labelText: "Korisnik",
-              prefixIcon: const Icon(Icons.person),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.9),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
+            isExpanded: true,
+            decoration: _filterDecoration("Korisnik", Icons.person),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
-                child: Text("Svi korisnici"),
+                child: Text("Svi korisnici", overflow: TextOverflow.ellipsis),
               ),
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(u.displayName),
+                  child: Text(
+                    u.displayName,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -558,28 +598,23 @@ class _ForumPageState extends State<ForumPage> {
     } else if (selectedSidebar == "ODGOVORI") {
       return [
         SizedBox(
-          width: 240,
+          width: fieldWidth,
           child: DropdownButtonFormField<int?>(
             value: _selectedAnswerUserId,
-            decoration: InputDecoration(
-              labelText: "Korisnik",
-              prefixIcon: const Icon(Icons.person),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.9),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
+            isExpanded: true,
+            decoration: _filterDecoration("Korisnik", Icons.person),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
-                child: Text("Svi korisnici"),
+                child: Text("Svi korisnici", overflow: TextOverflow.ellipsis),
               ),
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(u.displayName),
+                  child: Text(
+                    u.displayName,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -593,21 +628,17 @@ class _ForumPageState extends State<ForumPage> {
     } else if (selectedSidebar == "PRIJAVE") {
       return [
         SizedBox(
-          width: 220,
+          width: fieldWidth,
           child: DropdownButtonFormField<int?>(
             value: _selectedReportStatus,
-            decoration: InputDecoration(
-              labelText: "Status prijave",
-              prefixIcon: const Icon(Icons.info_outline),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.9),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
+            isExpanded: true,
+            decoration:
+                _filterDecoration("Status prijave", Icons.info_outline),
             items: const [
-              DropdownMenuItem<int?>(value: null, child: Text("Svi statusi")),
+              DropdownMenuItem<int?>(
+                value: null,
+                child: Text("Svi statusi", overflow: TextOverflow.ellipsis),
+              ),
               DropdownMenuItem<int?>(value: 0, child: Text("Kreirano")),
               DropdownMenuItem<int?>(value: 1, child: Text("U razmatranju")),
               DropdownMenuItem<int?>(value: 2, child: Text("Riješeno")),
@@ -620,28 +651,24 @@ class _ForumPageState extends State<ForumPage> {
           ),
         ),
         SizedBox(
-          width: 220,
+          width: fieldWidth,
           child: DropdownButtonFormField<int?>(
             value: _selectedReportedUserId,
-            decoration: InputDecoration(
-              labelText: "Prijavljen korisnik",
-              prefixIcon: const Icon(Icons.person_off),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.9),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
+            isExpanded: true,
+            decoration:
+                _filterDecoration("Prijavljen korisnik", Icons.person_off),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
-                child: Text("Svi korisnici"),
+                child: Text("Svi korisnici", overflow: TextOverflow.ellipsis),
               ),
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(u.displayName),
+                  child: Text(
+                    u.displayName,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -652,28 +679,24 @@ class _ForumPageState extends State<ForumPage> {
           ),
         ),
         SizedBox(
-          width: 220,
+          width: fieldWidth,
           child: DropdownButtonFormField<int?>(
             value: _selectedReportedByUserId,
-            decoration: InputDecoration(
-              labelText: "Prijavio korisnik",
-              prefixIcon: const Icon(Icons.person),
-              filled: true,
-              fillColor: Colors.white.withOpacity(0.9),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-            ),
+            isExpanded: true,
+            decoration:
+                _filterDecoration("Prijavio korisnik", Icons.person),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
-                child: Text("Svi korisnici"),
+                child: Text("Svi korisnici", overflow: TextOverflow.ellipsis),
               ),
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(u.displayName),
+                  child: Text(
+                    u.displayName,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
             ],
@@ -727,15 +750,19 @@ class _ForumPageState extends State<ForumPage> {
               color: isActive ? Colors.black : Colors.grey[600],
             ),
             const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
-                color: isActive ? Colors.black : Colors.grey[700],
-                backgroundColor: isActive
-                    ? Colors.white.withOpacity(0.1)
-                    : Colors.transparent,
+            Expanded(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight:
+                      isActive ? FontWeight.bold : FontWeight.normal,
+                  color: isActive ? Colors.black : Colors.grey[700],
+                  backgroundColor: isActive
+                      ? Colors.white.withOpacity(0.1)
+                      : Colors.transparent,
+                ),
               ),
             ),
           ],
@@ -836,6 +863,11 @@ class _ForumPageState extends State<ForumPage> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const ForumPage()),
+            );
+          } else if (label == "IZVJEŠTAJI") {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const ReportsPage()),
             );
           }
         },

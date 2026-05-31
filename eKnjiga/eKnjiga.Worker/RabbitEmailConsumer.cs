@@ -20,14 +20,23 @@ namespace eKnjiga.Worker.Messaging
         private IConnection? _conn;
         private IModel? _ch;
 
-        private const string Exchange = "email";
-        private const string RoutingKey = "email.send";
-        private const string Queue = "email.send.q";
+        private readonly string _exchange;
+        private readonly string _routingKey;
+        private readonly string _queue;
 
         public RabbitEmailConsumer(IConfiguration cfg, ILogger<RabbitEmailConsumer> logger)
         {
             _cfg = cfg;
             _logger = logger;
+
+            _exchange = _cfg["Rabbit:Exchange"]
+                ?? throw new InvalidOperationException("Rabbit:Exchange is missing.");
+
+            _routingKey = _cfg["Rabbit:RoutingKey"]
+                ?? throw new InvalidOperationException("Rabbit:RoutingKey is missing.");
+
+            _queue = _cfg["Rabbit:Queue"]
+                ?? throw new InvalidOperationException("Rabbit:Queue is missing.");
         }
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,7 +44,7 @@ namespace eKnjiga.Worker.Messaging
             try
             {
                 StartRabbitConsumer(stoppingToken);
-                _logger.LogInformation("RabbitEmailConsumer started. Listening on queue: {Queue}", Queue);
+                _logger.LogInformation("RabbitEmailConsumer started. Listening on queue: {Queue}", _queue);
             }
             catch (Exception ex)
             {
@@ -43,7 +52,6 @@ namespace eKnjiga.Worker.Messaging
                 throw;
             }
 
-            // Keep the background service alive; Rabbit client runs the consumer callbacks.
             return Task.Delay(Timeout.InfiniteTimeSpan, stoppingToken);
         }
 
@@ -66,20 +74,17 @@ namespace eKnjiga.Worker.Messaging
             _conn = factory.CreateConnection();
             _ch = _conn.CreateModel();
 
-            // Ensure topology exists (idempotent)
-            _ch.ExchangeDeclare(Exchange, ExchangeType.Direct, durable: true);
-            _ch.QueueDeclare(Queue, durable: true, exclusive: false, autoDelete: false);
-            _ch.QueueBind(Queue, Exchange, RoutingKey);
+            _ch.ExchangeDeclare(_exchange, ExchangeType.Direct, durable: true);
+            _ch.QueueDeclare(_queue, durable: true, exclusive: false, autoDelete: false);
+            _ch.QueueBind(_queue, _exchange, _routingKey);
 
-            // Fair dispatch: limit number of unacked messages
             _ch.BasicQos(prefetchSize: 0, prefetchCount: 5, global: false);
 
             var consumer = new AsyncEventingBasicConsumer(_ch);
             consumer.Received += OnMessageReceivedAsync;
 
-            _ch.BasicConsume(queue: Queue, autoAck: false, consumer: consumer);
+            _ch.BasicConsume(queue: _queue, autoAck: false, consumer: consumer);
 
-            // If app is stopping, try to close cleanly
             stoppingToken.Register(() =>
             {
                 try
@@ -99,7 +104,6 @@ namespace eKnjiga.Worker.Messaging
         {
             if (_ch == null)
             {
-                // Can't ack/nack safely; nothing to do.
                 _logger.LogWarning("Channel is null while message received");
                 return;
             }
@@ -146,7 +150,11 @@ namespace eKnjiga.Worker.Messaging
             mime.To.Add(MailboxAddress.Parse(msg.To));
             mime.Subject = msg.Subject;
 
-            var bodyBuilder = new BodyBuilder { HtmlBody = msg.Html, TextBody = msg.Text };
+            var bodyBuilder = new BodyBuilder
+            {
+                HtmlBody = msg.Html,
+                TextBody = msg.Text
+            };
             mime.Body = bodyBuilder.ToMessageBody();
 
             using var smtp = new SmtpClient();

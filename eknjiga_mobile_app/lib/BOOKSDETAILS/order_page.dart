@@ -1,41 +1,52 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-
-import '../HOME/pdf_viwer_page.dart';
+import '../HOME/pdf_viewer_page.dart';
 import 'package:eknjiga/models/book.dart';
 import 'package:eknjiga/services/api_service.dart';
+import '../models/book.dart';
+import '../HOME/cart.dart';
+import '../models/favorites.dart';
+import '../SHOP/shop_page.dart';
 
-class BookDetailsPage extends StatefulWidget {
+class OrderPage extends StatefulWidget {
   final Book book;
+  final String heroTag;
 
-  const BookDetailsPage({super.key, required this.book});
+  const OrderPage({super.key, required this.book, required this.heroTag});
 
   @override
-  State<BookDetailsPage> createState() => _BookDetailsPageState();
+  State<OrderPage> createState() => _OrderPageState();
 }
 
-class _BookDetailsPageState extends State<BookDetailsPage> {
+class _OrderPageState extends State<OrderPage> {
+  static const LinearGradient _pageGradient = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color(0xFFD4D8F3),
+      Color(0xFF8D9EDB),
+      Color(0xFFB59C4A),
+    ],
+    stops: [0.0, 0.56, 1.0],
+  );
+
   double _userRating = 0;
   bool _submitting = false;
   int? _existingReviewId;
+  bool _isFavorite = false;
 
   @override
   void initState() {
     super.initState();
     _loadUserReview();
+    _loadFavorite();
   }
 
   Future<void> _loadUserReview() async {
     final userId = ApiService.userID;
-    if (userId == null) {
-      return;
-    }
+    if (userId == 0) return;
 
     try {
-      final result = await ApiService.fetchUserReview(
-        bookId: widget.book.id
-      );
+      final result = await ApiService.fetchUserReview(bookId: widget.book.id);
 
       if (!mounted || result == null) return;
 
@@ -48,6 +59,23 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
     }
   }
 
+  Future<void> _loadFavorite() async {
+  final userId = ApiService.userID;
+  if (userId == 0) return;
+
+  try {
+    final isFav = await ApiService.getFavorite(widget.book.id);
+
+    if (!mounted) return;
+
+    setState(() {
+      _isFavorite = isFav;
+    });
+  } catch (e) {
+    debugPrint('Greška pri dohvaćanju favorita: $e');
+  }
+}
+
   Future<void> _submitReview() async {
     if (_userRating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -57,9 +85,11 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
     }
 
     final userId = ApiService.userID;
-    if (userId == null) {
+    if (userId == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Morate biti prijavljeni da ostavite recenziju.')),
+        const SnackBar(
+          content: Text('Morate biti prijavljeni da ostavite recenziju.'),
+        ),
       );
       return;
     }
@@ -73,9 +103,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
           bookId: widget.book.id,
         );
 
-        final result = await ApiService.fetchUserReview(
-          bookId: widget.book.id
-        );
+        final result = await ApiService.fetchUserReview(bookId: widget.book.id);
 
         if (result != null && mounted) {
           setState(() {
@@ -85,21 +113,17 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
         }
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Hvala na recenziji ($_userRating ⭐)!'),
-          ),
+          SnackBar(content: Text('Hvala na recenziji ($_userRating ⭐)!')),
         );
       } else {
         await ApiService.updateReview(
           reviewId: _existingReviewId!,
           rating: _userRating,
-          bookId: widget.book.id
+          bookId: widget.book.id,
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Recenzija izmijenjena ($_userRating ⭐)!'),
-          ),
+          SnackBar(content: Text('Recenzija izmijenjena ($_userRating ⭐)!')),
         );
       }
     } catch (e) {
@@ -114,12 +138,80 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final book = widget.book;
+    final imageUrl = ApiService.getImageUrl(book.coverImage);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.shopping_cart_outlined, color: Colors.black),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ShopPage()),
+                  );
+                },
+              ),
+              Positioned(
+                right: 6,
+                top: 6,
+                child: ValueListenableBuilder<int>(
+                  valueListenable: Cart.I.count,
+                  builder: (_, value, __) {
+                    if (value == 0) return const SizedBox();
+                    return Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$value',
+                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          IconButton(
+            icon: Icon(
+              _isFavorite ? Icons.favorite : Icons.favorite_border,
+              color: Colors.black,
+            ),
+            onPressed: () async {
+              final newValue = !_isFavorite;
+
+              setState(() {
+                _isFavorite = newValue;
+              });
+
+              try {
+                await ApiService.setFavorite(book.id, newValue);
+
+                if (newValue) {
+                  Favorites.I.add(book);
+                } else {
+                  Favorites.I.remove(book);
+                }
+              } catch (e) {
+                setState(() {
+                  _isFavorite = !newValue;
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Greška: $e')),
+                );
+              }
+            },
+          ),
+        ],
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
@@ -128,237 +220,241 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
       body: Container(
         width: double.infinity,
         height: double.infinity,
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color.fromARGB(255, 212, 217, 246),
-              Color.fromARGB(255, 141, 158, 219),
-              Color.fromARGB(255, 181, 156, 74),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: _pageGradient),
         child: SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Hero(
-                    tag: 'book-cover-${book.id}',
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: _bookCover(book, height: 250),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    book.name,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  Text(
-                    book.authors.join(', '),
-                    style: const TextStyle(fontSize: 16, color: Colors.black87),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  const SizedBox(height: 16),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "Opis",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    book.description.isNotEmpty
-                        ? book.description
-                        : 'Opis nije dostupan.',
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
-                    textAlign: TextAlign.justify,
-                  ),
-
-                  const SizedBox(height: 16),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "O autoru",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    book.authors.isNotEmpty
-                        ? book.authors.join(', ')
-                        : 'Podaci o autoru nisu dostupni.',
-                    style: const TextStyle(fontSize: 14, color: Colors.black87),
-                    textAlign: TextAlign.justify,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      "Moja recenzija",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(5, (index) {
-                      final starIndex = index + 1;
-                      final isFilled = _userRating >= starIndex;
-                      return IconButton(
-                        icon: Icon(
-                          isFilled ? Icons.star : Icons.star_border,
-                          color: Colors.amber,
-                          size: 32,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _userRating = starIndex.toDouble();
-                          });
-                        },
-                      );
-                    }),
-                  ),
-                  if (_userRating > 0)
-                    Text(
-                      'Odabrali ste: $_userRating ⭐',
-                      style: const TextStyle(fontSize: 14),
-                    ),
-
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: ElevatedButton(
-                      onPressed: _submitting ? null : _submitReview,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 4,
-                      ),
-                      child: _submitting
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              _existingReviewId == null
-                                  ? 'Pošalji recenziju'
-                                  : 'Izmijeni recenziju',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        Hero(
+                          tag: widget.heroTag,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(28),
+                            child: SizedBox(
+                              height: 250,
+                              child: AspectRatio(
+                                aspectRatio: 2 / 3,
+                                child: Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      color: Colors.white,
+                                      child: const Center(
+                                        child: Icon(
+                                          Icons.broken_image,
+                                          size: 34,
+                                          color: Colors.black45,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  loadingBuilder: (context, child, loadingProgress) {
+                                    if (loadingProgress == null) return child;
+                                    return Container(
+                                      color: Colors.white,
+                                      child: const Center(
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
                             ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          book.name,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          book.authors.join(', '),
+                          style: const TextStyle(fontSize: 13, color: Colors.black87),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 10),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "Opis",
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          book.description.isNotEmpty
+                              ? book.description
+                              : 'Opis nije dostupan.',
+                          style: const TextStyle(fontSize: 12, color: Colors.black87),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "O autoru",
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          book.authors.isNotEmpty
+                              ? book.authors.join(', ')
+                              : 'Podaci o autoru nisu dostupni.',
+                          style: const TextStyle(fontSize: 12, color: Colors.black87),
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 10),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "Moja recenzija",
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(5, (index) {
+                            final starIndex = index + 1;
+                            final isFilled = _userRating >= starIndex;
+                            return IconButton(
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              icon: Icon(
+                                isFilled ? Icons.star : Icons.star_border,
+                                color: Colors.amber,
+                                size: 24,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _userRating = starIndex.toDouble();
+                                });
+                              },
+                            );
+                          }),
+                        ),
+                        if (_userRating > 0) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Odabrali ste: $_userRating ⭐',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 6,
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    onPressed: _submitting ? null : _submitReview,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF96A6DA),
+                      foregroundColor: Colors.black87,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
                       ),
-                      onPressed: () {
-                        final pdf = book.pdfFileBase64;
-                        if (pdf != null && pdf.isNotEmpty) {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PdfViewerPage(pdfBase64: pdf),
+                      elevation: 0,
+                    ),
+                    child: _submitting
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
                             ),
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('PDF nije dostupan.')),
-                          );
+                          )
+                        : Text(
+                            _existingReviewId == null
+                                ? 'Pošalji recenziju'
+                                : 'Izmijeni recenziju',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(28),
+                      ),
+                      elevation: 0,
+                    ),
+                    onPressed: () async {
+                      try {
+                        final bytes = await ApiService.getBookPdf(book.id);
+
+                        if (!mounted) return;
+
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => PdfViewerPage(
+                              bytes: bytes,
+                              title: book.name,
+                              ),
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+
+                        String message = 'Došlo je do greške.';
+
+                        if (e.toString().contains('NOT_PAID')) {
+                          message = 'Plaćanje još nije evidentirano.';
+                        } else if (e.toString().contains('NO_ACCESS')) {
+                          message = 'Nemate pristup ovoj knjizi.';
                         }
-                      },
-                      child: const Text(
-                        'PDF',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(message)),
+                        );
+                      }
+                    },
+                    child: const Text(
+                      'PDF',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
       ),
     );
-  }
-
-  Widget _bookCover(Book book, {double? height, double? width}) {
-    final base64Str = book.coverImageBase64;
-    if (base64Str == null || base64Str.isEmpty) {
-      return Container(
-        height: height,
-        width: width,
-        color: Colors.white,
-        child: const Center(
-          child: Icon(Icons.bookmark, size: 40, color: Colors.black45),
-        ),
-      );
-    }
-    try {
-      final cleaned =
-          base64Str.contains(',') ? base64Str.split(',').last : base64Str;
-      final Uint8List bytes = base64Decode(cleaned);
-      return Image.memory(
-        bytes,
-        height: height,
-        width: width,
-        fit: BoxFit.cover,
-      );
-    } catch (_) {
-      return Container(
-        height: height,
-        width: width,
-        color: Colors.white,
-        child: const Center(
-          child: Icon(Icons.broken_image, size: 40, color: Colors.black45),
-        ),
-      );
-    }
   }
 }

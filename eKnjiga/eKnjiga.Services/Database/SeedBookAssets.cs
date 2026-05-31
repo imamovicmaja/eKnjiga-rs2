@@ -20,13 +20,10 @@ namespace eKnjiga.Services.Database
             return ms.ToArray();
         }
 
-        public static byte[] GetCover(int bookId)
+        public static byte[]? TryGetPdf(int bookId)
         {
-            var name = ResName(bookId, "cover.png");
-            var data = Read(name);
-            if (data == null)
-                throw new InvalidOperationException($"Slika naslovnice nije pronađena: {name}");
-            return data;
+            var name = ResName(bookId, "book.pdf");
+            return Read(name);
         }
 
         public static byte[] GetPdf(int bookId)
@@ -34,7 +31,7 @@ namespace eKnjiga.Services.Database
             var name = ResName(bookId, "book.pdf");
             var data = Read(name);
             if (data == null)
-                throw new InvalidOperationException($"PDF datoteka nije pronađena.: {name}");
+                throw new InvalidOperationException($"PDF datoteka nije pronađena: {name}");
             return data;
         }
 

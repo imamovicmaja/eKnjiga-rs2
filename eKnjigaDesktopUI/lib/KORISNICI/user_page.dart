@@ -5,6 +5,7 @@ import '../FORUM/forum_page.dart';
 import '../KNJIGE/books_page.dart';
 import '../NARUDZBE/order_page.dart';
 import '../LOGIN/login_page.dart';
+import '../IZVJESTAJ/reports_page.dart';
 
 import './add_user.dart';
 import './add_role.dart';
@@ -315,6 +316,8 @@ class _UserPageState extends State<UserPage> {
                         navTab("NARUDŽBE", context),
                         const SizedBox(width: 32),
                         navTab("FORUM", context),
+                        const SizedBox(width: 32),
+                        navTab("IZVJEŠTAJI", context),
                       ],
                     ),
                     TextButton(
@@ -1195,6 +1198,11 @@ class _UserPageState extends State<UserPage> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (_) => const ForumPage()),
+            );
+          } else if (label == "IZVJEŠTAJI") {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const ReportsPage()),
             );
           }
         },

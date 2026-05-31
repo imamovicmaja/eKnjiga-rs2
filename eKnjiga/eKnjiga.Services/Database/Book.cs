@@ -19,7 +19,7 @@ namespace eKnjiga.Services.Database
         [Required] 
         public double Price { get; set; }
 
-        public byte[]? CoverImage { get; set; }
+        public string? CoverImage { get; set; }
 
         public byte[]? PdfFile { get; set; }
 

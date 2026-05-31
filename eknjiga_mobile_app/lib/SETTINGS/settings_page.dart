@@ -1,16 +1,14 @@
-import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:image_picker/image_picker.dart';
-import 'dart:convert';
-import 'dart:typed_data';
 
-import './../Home/home_page.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import './../HOME/home_page.dart';
 import './../BOOKS/books_page.dart';
 import './../SHOP/shop_page.dart';
 import './../MESSAGES/messages_page.dart';
 import './../LOGIN/login_page.dart';
-
 import '../services/api_service.dart';
+import '../utils/app_style.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -28,14 +26,15 @@ class _SettingsPageState extends State<SettingsPage> {
   final _emailCtrl = TextEditingController();
   final _lozinkaCtrl = TextEditingController();
   final _potvrdaCtrl = TextEditingController();
-  Uint8List? _profileImageBytes;
+
+  String? _profileImageUrl;
 
   bool _loading = true;
   bool _saving = false;
+  bool _uploadingImage = false;
 
   final _picker = ImagePicker();
   File? _pickedImageFile;
-  bool _uploadingImage = false;
 
   @override
   void initState() {
@@ -48,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (ApiService.userID == 0) {
         await ApiService.restoreSession();
       }
+
       if (ApiService.userID == 0) {
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
@@ -59,20 +59,14 @@ class _SettingsPageState extends State<SettingsPage> {
       }
 
       final user = await ApiService.fetchUserById();
+
       _imeCtrl.text = (user['firstName'] ?? '').toString();
       _prezimeCtrl.text = (user['lastName'] ?? '').toString();
       _emailCtrl.text = (user['email'] ?? '').toString();
+      _profileImageUrl = (user['profileImage'] ?? '').toString();
 
-      final imgBase64 = user['profileImage'];
-
-      if (imgBase64 != null && imgBase64.toString().trim().isNotEmpty) {
-        try {
-          _profileImageBytes = base64Decode(imgBase64.toString());
-        } catch (_) {
-          _profileImageBytes = null;
-        }
-      } else {
-        _profileImageBytes = null;
+      if (mounted) {
+        setState(() {});
       }
     } catch (e) {
       if (!mounted) return;
@@ -80,7 +74,9 @@ class _SettingsPageState extends State<SettingsPage> {
         SnackBar(content: Text('Greška pri učitavanju profila: $e')),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+      }
     }
   }
 
@@ -92,18 +88,22 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (pass.isNotEmpty && pass.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lozinka mora imati najmanje 6 znakova.')),
+        const SnackBar(
+          content: Text('Lozinka mora imati najmanje 6 znakova.'),
+        ),
       );
       return;
     }
+
     if (pass.isNotEmpty && pass != confirm) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Lozinke se ne poklapaju.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lozinke se ne poklapaju.')),
+      );
       return;
     }
 
     setState(() => _saving = true);
+
     try {
       await ApiService.updateUser(
         firstName: _imeCtrl.text.trim(),
@@ -113,51 +113,22 @@ class _SettingsPageState extends State<SettingsPage> {
       );
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profil je uspješno sačuvan.')),
       );
+
       _lozinkaCtrl.clear();
       _potvrdaCtrl.clear();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Greška pri spremanju: $e')));
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  Future<void> _pickAndUploadProfileImage() async {
-    try {
-      final xfile = await _picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 80,
-        maxWidth: 800,
-      );
-
-      if (xfile == null) return;
-
-      setState(() {
-        _pickedImageFile = File(xfile.path);
-        _uploadingImage = true;
-      });
-
-      await ApiService.updateProfileImage(_pickedImageFile!);
-
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profilna slika je ažurirana.')),
-      );
-
-      await _init();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Greška pri uploadu slike: $e')),
+        SnackBar(content: Text('Greška pri spremanju: $e')),
       );
     } finally {
-      if (mounted) setState(() => _uploadingImage = false);
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
 
@@ -200,25 +171,32 @@ class _SettingsPageState extends State<SettingsPage> {
         imageQuality: 80,
         maxWidth: 800,
       );
+
       if (xfile == null) return;
 
-      // ako radiš samo mobile: koristi path
+      setState(() {
+        _pickedImageFile = File(xfile.path);
+        _uploadingImage = true;
+      });
+
       await ApiService.updateProfileImagePath(path: xfile.path);
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profilna slika je ažurirana.')),
       );
 
-      // ako želiš odmah prikazati novu sliku lokalno:
-      setState(() {
-        _pickedImageFile = File(xfile.path);
-      });
+      await _init();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Greška: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _uploadingImage = false);
+      }
     }
   }
 
@@ -234,13 +212,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    const topColor = Color.fromARGB(255, 212, 217, 246);
+
     return Scaffold(
+      backgroundColor: topColor,
       appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 212, 217, 246),
+        backgroundColor: topColor,
         elevation: 0,
-        title: Column(
+        title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
+          children: [
             Text('eKnjiga', style: TextStyle(fontWeight: FontWeight.bold)),
             Text(
               'For readers, by bookworms.',
@@ -264,165 +245,176 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color.fromARGB(255, 212, 217, 246),
-              Color.fromARGB(255, 141, 158, 219),
-              Color.fromARGB(255, 181, 156, 74),
-            ],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          ),
-        ),
+        decoration: AppStyle.pageDecoration,
         child: SafeArea(
-          child:
-              _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Column(
-                      children: [
-                        const Text(
-                          "MOJ PROFIL",
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        GestureDetector(
-                          onTap: _uploadingImage ? null : _showImageSourceSheet,
-                          child: Stack(
-                            alignment: Alignment.center,
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 20),
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          child: Column(
                             children: [
-                              CircleAvatar(
-                                radius: 50,
-                                backgroundColor: Colors.white,
-                                backgroundImage: _pickedImageFile != null
-                                    ? FileImage(_pickedImageFile!)
-                                    : (_profileImageBytes != null ? MemoryImage(_profileImageBytes!) : null)
-                                        as ImageProvider?,
-                                child: (_pickedImageFile == null && _profileImageBytes == null)
-                                    ? const Icon(Icons.person, size: 45, color: Colors.blue)
-                                    : null,
+                              const SizedBox(height: 4),
+                              const Text(
+                                'MOJ PROFIL',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                              Positioned(
-                                bottom: 0,
-                                right: 0,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.6),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  padding: const EdgeInsets.all(8),
-                                  child: _uploadingImage
-                                      ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      : const Icon(Icons.camera_alt, color: Colors.white, size: 18),
+                              const SizedBox(height: 12),
+                              GestureDetector(
+                                onTap: _uploadingImage
+                                    ? null
+                                    : _showImageSourceSheet,
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 52,
+                                      backgroundColor: Colors.white,
+                                      backgroundImage: _pickedImageFile != null
+                                          ? FileImage(_pickedImageFile!)
+                                          : (_profileImageUrl != null &&
+                                                  _profileImageUrl!
+                                                      .trim()
+                                                      .isNotEmpty
+                                              ? NetworkImage(ApiService.getImageUrl(_profileImageUrl))
+                                              : null) as ImageProvider?,
+                                      child: (_pickedImageFile == null &&
+                                              (_profileImageUrl == null ||
+                                                  _profileImageUrl!
+                                                      .trim()
+                                                      .isEmpty))
+                                          ? const Icon(
+                                              Icons.person,
+                                              size: 45,
+                                              color: Colors.blue,
+                                            )
+                                          : null,
+                                    ),
+                                    Positioned(
+                                      bottom: 0,
+                                      right: 0,
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.96),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        padding: const EdgeInsets.all(8),
+                                        child: _uploadingImage
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child:
+                                                    CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Colors.black,
+                                                ),
+                                              )
+                                            : const Icon(
+                                                Icons.camera_alt,
+                                                color: Colors.black87,
+                                                size: 18,
+                                              ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              Form(
+                                key: _formKey,
+                                child: Column(
+                                  children: [
+                                    _buildTextField(
+                                      controller: _imeCtrl,
+                                      label: 'Ime',
+                                      validator: (v) =>
+                                          (v == null || v.trim().isEmpty)
+                                              ? 'Unesite ime'
+                                              : null,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildTextField(
+                                      controller: _prezimeCtrl,
+                                      label: 'Prezime',
+                                      validator: (v) =>
+                                          (v == null || v.trim().isEmpty)
+                                              ? 'Unesite prezime'
+                                              : null,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildTextField(
+                                      controller: _emailCtrl,
+                                      label: 'Email',
+                                      keyboardType:
+                                          TextInputType.emailAddress,
+                                      validator: (v) {
+                                        final t = v?.trim() ?? '';
+                                        if (t.isEmpty) {
+                                          return 'Unesite email';
+                                        }
+                                        if (!t.contains('@')) {
+                                          return 'Email nije ispravan';
+                                        }
+                                        return null;
+                                      },
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildTextField(
+                                      controller: _lozinkaCtrl,
+                                      label: 'Lozinka (opcionalno)',
+                                      obscure: true,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    _buildTextField(
+                                      controller: _potvrdaCtrl,
+                                      label: 'Potvrdi lozinku',
+                                      obscure: true,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 24),
-                          child: Form(
-                            key: _formKey,
-                            child: Column(
-                              children: [
-                                _buildTextField(
-                                  controller: _imeCtrl,
-                                  label: "Ime",
-                                  validator:
-                                      (v) =>
-                                          (v == null || v.trim().isEmpty)
-                                              ? 'Unesite ime'
-                                              : null,
-                                ),
-                                const SizedBox(height: 10),
-                                _buildTextField(
-                                  controller: _prezimeCtrl,
-                                  label: "Prezime",
-                                  validator:
-                                      (v) =>
-                                          (v == null || v.trim().isEmpty)
-                                              ? 'Unesite prezime'
-                                              : null,
-                                ),
-                                const SizedBox(height: 10),
-                                _buildTextField(
-                                  controller: _emailCtrl,
-                                  label: "Email",
-                                  keyboardType: TextInputType.emailAddress,
-                                  validator: (v) {
-                                    final t = v?.trim() ?? '';
-                                    if (t.isEmpty) return 'Unesite email';
-                                    if (!t.contains('@'))
-                                      return 'Email nije ispravan';
-                                    return null;
-                                  },
-                                ),
-                                const SizedBox(height: 10),
-                                _buildTextField(
-                                  controller: _lozinkaCtrl,
-                                  label: "Lozinka (opcionalno)",
-                                  obscure: true,
-                                ),
-                                const SizedBox(height: 10),
-                                _buildTextField(
-                                  controller: _potvrdaCtrl,
-                                  label: "Potvrdi lozinku",
-                                  obscure: true,
-                                ),
-                                const SizedBox(height: 16),
-                                SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton(
-                                    onPressed: _saving ? null : _save,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color.fromARGB(
-                                        255,
-                                        141,
-                                        158,
-                                        219,
-                                      ),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 40,
-                                        vertical: 16,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(30),
-                                      ),
-                                    ),
-                                    child:
-                                        _saving
-                                            ? const SizedBox(
-                                              height: 20,
-                                              width: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                            : const Text("SAČUVAJ"),
-                                  ),
-                                ),
-                              ],
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : _save,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF96A6DA),
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(28),
                             ),
                           ),
+                          child: _saving
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'SAČUVAJ',
+                                  style: TextStyle(fontWeight: FontWeight.w700),
+                                ),
                         ),
-                        SizedBox(
-                          height:
-                              MediaQuery.of(context).padding.bottom + kBottomNavigationBarHeight + 16,
-                        ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
+                ),
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -431,7 +423,9 @@ class _SettingsPageState extends State<SettingsPage> {
         selectedItemColor: Colors.black,
         onTap: (index) {
           if (index == _selectedIndex) return;
+
           setState(() => _selectedIndex = index);
+
           switch (index) {
             case 0:
               Navigator.pushReplacement(
@@ -471,10 +465,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icon(Icons.shopping_bag, size: 32),
             label: "",
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.comment, size: 32),
-            label: "",
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.comment, size: 32), label: ""),
           BottomNavigationBarItem(
             icon: Icon(Icons.settings, size: 32),
             label: "",
@@ -499,15 +490,25 @@ class _SettingsPageState extends State<SettingsPage> {
       decoration: InputDecoration(
         labelText: label,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.8),
+        fillColor: Colors.white.withOpacity(0.92),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
         ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 14,
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
         ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Colors.black, width: 1),
+        ),
+        labelStyle: const TextStyle(color: Colors.black87),
+        hintStyle: const TextStyle(color: Colors.black45),
       ),
     );
   }

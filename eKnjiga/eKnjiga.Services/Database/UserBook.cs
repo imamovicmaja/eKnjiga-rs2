@@ -14,5 +14,6 @@ namespace eKnjiga.Services.Database
         public int BookId { get; set; }
         [ForeignKey("BookId")]
         public Book Book { get; set; } = null!;
+        public bool IsFavorite { get; set; } = false;
     }
 } 

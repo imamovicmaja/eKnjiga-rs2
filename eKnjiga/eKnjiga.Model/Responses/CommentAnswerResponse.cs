@@ -9,7 +9,7 @@ namespace eKnjiga.Model.Responses
         public DateTime CreatedAt { get; set; }
         public int Likes { get; set; }
         public int Dislikes { get; set; }
-        public UserResponse? User { get; set; }
+        public PublicUserResponse? User { get; set; }
         public CommentResponse ParentComment { get; set; }
     }
 }

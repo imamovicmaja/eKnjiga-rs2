@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.SearchObjects;
+using Microsoft.AspNetCore.Http;
 
 namespace eKnjiga.Services
 {
@@ -16,6 +17,8 @@ namespace eKnjiga.Services
         Task<bool> DeleteAsync(int id);
         Task<UserResponse?> AuthenticateAsync(UserLoginRequest request);
         Task<UserResponse> Register(UserUpsertRequest request);
-        Task<UserResponse?> UpdateProfileImageAsync(int id, byte[] imageBytes);
+        Task<UserResponse?> UpdateProfileImageAsync(int id, IFormFile file);
+        Task SetFavoriteAsync(int userId, int bookId, bool isFavorite);
+        Task<bool> GetFavoriteAsync(int userId, int bookId);
     }
 } 
