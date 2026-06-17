@@ -13,12 +13,16 @@ namespace eKnjiga.Services
         Task<PagedResult<UserResponse>> GetAsync(UserSearchObject search);
         Task<UserResponse?> GetByIdAsync(int id);
         Task<UserResponse> CreateAsync(UserUpsertRequest request);
-        Task<UserResponse?> UpdateAsync(int id, UserUpsertRequest request);
+        //Task<UserResponse?> UpdateAsync(int id, UserUpsertRequest request);
+        Task<UserResponse> Register(RegisterRequest request);
+        Task<UserResponse?> UpdateMyProfileAsync(int id, UpdateMyProfileRequest request);
+        Task<UserResponse?> AdminUpdateAsync(int id, AdminUpdateUserRequest request);
         Task<bool> DeleteAsync(int id);
         Task<UserResponse?> AuthenticateAsync(UserLoginRequest request);
-        Task<UserResponse> Register(UserUpsertRequest request);
+        //Task<UserResponse> Register(UserUpsertRequest request);
         Task<UserResponse?> UpdateProfileImageAsync(int id, IFormFile file);
         Task SetFavoriteAsync(int userId, int bookId, bool isFavorite);
         Task<bool> GetFavoriteAsync(int userId, int bookId);
+        Task RevokeTokenAsync(string token, DateTime expiresAt);
     }
 } 

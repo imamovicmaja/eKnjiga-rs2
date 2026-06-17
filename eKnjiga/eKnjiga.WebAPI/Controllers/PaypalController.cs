@@ -62,8 +62,7 @@ namespace eKnjiga.WebAPI.Controllers
             var ok = await _paypalService.VerifyWebhookAsync(headers, fullUrl, body, ct);
             if (!ok) return Unauthorized();
 
-            // (sljedeći korak) ovdje ćemo pozvati handler da upiše status u bazu
-            // await _paypalService.HandleWebhookAsync(body, ct);
+            await _paypalService.HandleWebhookAsync(body, ct);
 
             return Ok();
         }

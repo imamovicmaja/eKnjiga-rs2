@@ -1,21 +1,17 @@
-using eKnjiga.Model;
-using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services.Database;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
+using eKnjiga.Services.Exceptions;
 
 namespace eKnjiga.Services
 {
-    public class ReviewService : BaseCRUDService<ReviewResponse, ReviewSearchObject, Database.Review, ReviewUpsertRequest, ReviewUpsertRequest>, IReviewService
+    public class ReviewService : BaseCRUDService<ReviewResponse, ReviewSearchObject, Database.Review, ReviewUpsertRequest, ReviewUpdateRequest>, IReviewService
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -47,10 +43,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
         private PublicUserResponse? MapToPublicUserResponse(Database.User? user)
         {
@@ -105,6 +101,8 @@ namespace eKnjiga.Services
 
         public override async Task<PagedResult<ReviewResponse>> GetAsync(ReviewSearchObject search)
         {
+            search ??= new ReviewSearchObject();
+
             var query = _context.Reviews
                 .Include(r => r.Book)
                     .ThenInclude(b => b.BookAuthors)
@@ -121,24 +119,21 @@ namespace eKnjiga.Services
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderByDescending(r => r.CreatedAt);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 
@@ -179,23 +174,15 @@ namespace eKnjiga.Services
             {
                 var currentUserId = GetCurrentUserId()!.Value;
                 entity.UserId = currentUserId;
-                request.UserId = currentUserId;
             }
 
             await Task.CompletedTask;
         }
 
-        protected override async Task BeforeUpdate(Review entity, ReviewUpsertRequest request)
+        protected override async Task BeforeUpdate(Review entity, ReviewUpdateRequest request)
         {
             EnsureUserAuthenticated();
             EnsureCanModifyReview(entity);
-
-            if (!IsAdmin())
-            {
-                var currentUserId = GetCurrentUserId()!.Value;
-                entity.UserId = currentUserId;
-                request.UserId = currentUserId;
-            }
 
             await Task.CompletedTask;
         }
@@ -265,20 +252,17 @@ namespace eKnjiga.Services
             var currentUserId = GetCurrentUserId();
 
             if (!currentUserId.HasValue)
-                throw new UnauthorizedAccessException("User is not authenticated.");
+                throw new UserException("Korisnik nije autentifikovan.", 401);
 
             if (!IsAdmin())
             {
-                request.UserId = currentUserId.Value;
-
-                var hasPurchased = await _context.Orders
-                    .AnyAsync(o =>
-                        o.UserId == currentUserId.Value &&
-                        o.PaymentStatus == PaymentStatus.Paid &&
-                        o.OrderItems.Any(oi => oi.BookId == request.BookId));
+                var hasPurchased = await _context.UserBooks
+                    .AnyAsync(ub =>
+                        ub.UserId == currentUserId.Value &&
+                        ub.BookId == request.BookId);
 
                 if (!hasPurchased)
-                    throw new UnauthorizedAccessException("You can review only books you have purchased.");
+                    throw new UserException("Možete recenzirati samo knjige koje ste kupili.", 403);
 
                 var alreadyReviewed = await _context.Reviews
                     .AnyAsync(r =>
@@ -286,12 +270,12 @@ namespace eKnjiga.Services
                         r.BookId == request.BookId);
 
                 if (alreadyReviewed)
-                    throw new InvalidOperationException("You have already reviewed this book.");
+                    throw new UserException("Već ste recenzirali ovu knjigu.");
             }
 
             var entity = new Database.Review
             {
-                UserId = request.UserId,
+                UserId = currentUserId.Value,
                 BookId = request.BookId,
                 Rating = request.Rating,
                 CreatedAt = DateTime.UtcNow
@@ -317,42 +301,27 @@ namespace eKnjiga.Services
                 .FirstOrDefaultAsync(r => r.Id == entity.Id);
 
             if (created == null)
-                throw new Exception("Created review could not be loaded.");
+                throw new InvalidOperationException("Created review could not be loaded.");
 
             return MapToResponse(created);
         }
 
-        public override async Task<ReviewResponse?> UpdateAsync(int id, ReviewUpsertRequest request)
+        public override async Task<ReviewResponse?> UpdateAsync(int id, ReviewUpdateRequest request)
         {
             EnsureUserAuthenticated();
 
             var entity = await _context.Reviews.FirstOrDefaultAsync(r => r.Id == id);
+
             if (entity == null)
                 throw new KeyNotFoundException("Review not found.");
 
             EnsureCanModifyReview(entity);
 
-            var oldBookId = entity.BookId;
-
-            if (!IsAdmin())
-            {
-                request.UserId = entity.UserId;
-            }
-
-            _mapper.Map(request, entity);
-
-            if (!IsAdmin())
-            {
-                entity.UserId = GetCurrentUserId()!.Value;
-            }
+            entity.Rating = request.Rating;
 
             await _context.SaveChangesAsync();
 
             await UpdateBookRatingAsync(entity.BookId);
-            if (oldBookId != entity.BookId)
-            {
-                await UpdateBookRatingAsync(oldBookId);
-            }
 
             var loaded = await _context.Reviews
                 .Include(r => r.Book)

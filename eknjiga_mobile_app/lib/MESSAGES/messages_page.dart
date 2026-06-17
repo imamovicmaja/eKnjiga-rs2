@@ -17,6 +17,13 @@ class MessagesPage extends StatefulWidget {
 class _MessagesPageState extends State<MessagesPage> {
   int _selectedIndex = 3;
   List<Comment> comments = [];
+
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _page = 1;
+  final int _pageSize = 3;
+
   final TextEditingController commentController = TextEditingController();
 
   int get currentUserId => ApiService.userID;
@@ -43,13 +50,50 @@ class _MessagesPageState extends State<MessagesPage> {
   bool _canDeleteComment(Comment c) => isAdmin || _isOwnerOfComment(c);
   bool _canDeleteReply(CommentReply r) => isAdmin || _isOwnerOfReply(r);
 
-  void loadComments() async {
-    try {
-      final fetched = await ApiService.fetchComments();
+  Future<void> loadComments({bool reset = true}) async {
+    if (_isLoading || _isLoadingMore) return;
+
+    if (reset) {
       setState(() {
-        comments = fetched;
+        _isLoading = true;
+        _page = 1;
+        _hasMore = true;
+      });
+    } else {
+      if (!_hasMore) return;
+      setState(() {
+        _isLoadingMore = true;
+      });
+    }
+
+    try {
+      final result = await ApiService.fetchCommentsPaged(
+        page: _page,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        if (reset) {
+          comments = result.items;
+        } else {
+          comments.addAll(result.items);
+        }
+
+        _hasMore = result.hasMore;
+        _page++;
+        _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+
       print("Error fetching comments: $e");
       return;
     }
@@ -57,38 +101,31 @@ class _MessagesPageState extends State<MessagesPage> {
     try {
       final my = await ApiService.fetchMyReactions(currentUserId);
 
-      if (my == null) {
-        return;
-      }
+      if (my == null) return;
 
       final dynamic rawItems = my['items'];
-
-      if (rawItems is! List) {
-        return;
-      }
-
-      final List items = rawItems;
+      if (rawItems is! List) return;
 
       myCommentReactions.clear();
       myReactions.clear();
 
-      for (final raw in items) {
+      for (final raw in rawItems) {
         if (raw is! Map) continue;
 
-        final Map e = raw;
-
-        final int? commentId = e['commentId'] as int?;
-        final int? commentAnswerId = e['commentAnswerId'] as int?;
-        final bool? isLike = e['isLike'] as bool?;
+        final int? commentId = raw['commentId'] as int?;
+        final int? commentAnswerId = raw['commentAnswerId'] as int?;
+        final bool? isLike = raw['isLike'] as bool?;
 
         if (commentId != null && isLike != null) {
           myCommentReactions[commentId] = isLike;
         }
+
         if (commentAnswerId != null && isLike != null) {
           myReactions[commentAnswerId] = isLike;
         }
       }
 
+      if (!mounted) return;
       setState(() {});
     } catch (e) {
       print("Error fetching my reactions: $e");
@@ -119,7 +156,6 @@ class _MessagesPageState extends State<MessagesPage> {
       await ApiService.addCommentAnswer(
         parentCommentId,
         text,
-        currentUserId,
         replyToCommentId: replyToCommentId,
       );
       loadComments();
@@ -128,6 +164,255 @@ class _MessagesPageState extends State<MessagesPage> {
         context,
       ).showSnackBar(SnackBar(content: Text("Error adding reply: $e")));
     }
+  }
+
+  Future<bool?> _showConfirmDialog({
+    required String title,
+    required String message,
+    required IconData icon,
+    required String confirmText,
+    Color iconColor = Colors.redAccent,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder:
+          (_) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 26),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.96),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: iconColor.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, color: iconColor, size: 30),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      height: 1.35,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black87,
+                            side: BorderSide(
+                              color: Colors.black.withOpacity(0.12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          child: const Text(
+                            'Otkaži',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF96A6DA),
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          child: Text(
+                            confirmText,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+  }
+
+  Future<String?> _showReportDialog({
+    required String title,
+    required String hintText,
+  }) async {
+    final reasonController = TextEditingController();
+
+    final result = await showDialog<String>(
+      context: context,
+      builder:
+          (_) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 26),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 24, 22, 18),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.96),
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.flag_outlined,
+                      color: Colors.redAccent,
+                      size: 30,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Pomozite nam održati zajednicu sigurnom i prijavite neprimjeren sadržaj.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      height: 1.35,
+                      color: Colors.black54,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: reasonController,
+                    maxLines: 4,
+                    textInputAction: TextInputAction.newline,
+                    decoration: InputDecoration(
+                      hintText: hintText,
+                      filled: true,
+                      fillColor: const Color(0xFFF5F1F1),
+                      contentPadding: const EdgeInsets.all(14),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF96A6DA),
+                          width: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.black87,
+                            side: BorderSide(
+                              color: Colors.black.withOpacity(0.12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          child: const Text(
+                            'Otkaži',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(
+                              context,
+                              reasonController.text.trim(),
+                            );
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF96A6DA),
+                            foregroundColor: Colors.black87,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          child: const Text(
+                            'Prijavi',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+
+    return result;
   }
 
   void deleteComment(int id) async {
@@ -143,25 +428,11 @@ class _MessagesPageState extends State<MessagesPage> {
       );
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text("Delete confirmation"),
-            content: const Text(
-              "Are you sure you want to delete this comment?",
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text("Cancel"),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text("Delete"),
-              ),
-            ],
-          ),
+    final confirmed = await _showConfirmDialog(
+      title: 'Obrisati komentar?',
+      message: 'Ova radnja se ne može poništiti.',
+      icon: Icons.delete_outline,
+      confirmText: 'Obriši',
     );
 
     if (confirmed == true) {
@@ -193,23 +464,11 @@ class _MessagesPageState extends State<MessagesPage> {
       );
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text("Delete confirmation"),
-            content: const Text("Are you sure you want to delete this reply?"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text("Cancel"),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text("Delete"),
-              ),
-            ],
-          ),
+    final confirmed = await _showConfirmDialog(
+      title: 'Obrisati odgovor?',
+      message: 'Ova radnja se ne može poništiti.',
+      icon: Icons.delete_outline,
+      confirmText: 'Obriši',
     );
 
     if (confirmed == true) {
@@ -226,16 +485,13 @@ class _MessagesPageState extends State<MessagesPage> {
 
   Future<void> _toggleReplyReaction(CommentReply reply, bool isLike) async {
     final current = myReactions[reply.id];
+
     try {
       if (current == isLike) {
-        await ApiService.deleteCommentReaction(
-          userId: currentUserId,
-          commentAnswerId: reply.id,
-        );
+        await ApiService.deleteCommentReaction(commentAnswerId: reply.id);
         myReactions[reply.id] = null;
       } else {
         await ApiService.addCommentReaction(
-          userId: currentUserId,
           commentAnswerId: reply.id,
           isLike: isLike,
         );
@@ -244,24 +500,21 @@ class _MessagesPageState extends State<MessagesPage> {
 
       loadComments();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error with reaction: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error with reaction: $e")));
     }
   }
 
   Future<void> _toggleCommentReaction(Comment comment, bool isLike) async {
     final current = myCommentReactions[comment.id];
+
     try {
       if (current == isLike) {
-        await ApiService.deleteCommentReaction(
-          userId: currentUserId,
-          commentId: comment.id,
-        );
+        await ApiService.deleteCommentReaction(commentId: comment.id);
         myCommentReactions[comment.id] = null;
       } else {
         await ApiService.addCommentReaction(
-          userId: currentUserId,
           commentId: comment.id,
           isLike: isLike,
         );
@@ -270,140 +523,80 @@ class _MessagesPageState extends State<MessagesPage> {
 
       loadComments();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error with reaction: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error with reaction: $e")));
     }
   }
 
   Future<void> _reportComment(Comment comment) async {
-    final TextEditingController reasonController = TextEditingController();
-
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Prijavi komentar"),
-        content: TextField(
-          controller: reasonController,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: "Opišite zašto prijavljujete ovaj komentar...",
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Otkaži"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Prijavi"),
-          ),
-        ],
-      ),
+    final reason = await _showReportDialog(
+      title: 'Prijavi komentar',
+      hintText: 'Opišite zašto prijavljujete ovaj komentar...',
     );
 
-    if (confirmed == true) {
-      final reason = reasonController.text.trim();
-      if (reason.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Please enter a reason for the report."),
-          ),
-        );
-        return;
-      }
+    if (reason == null) return;
 
-      try {
-        await ApiService.reportComment(
-          userReportedId: comment.user.id,
-          reason: reason,
-        );
+    if (reason.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Molimo unesite razlog prijave.')),
+      );
+      return;
+    }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Hvala vam, vaša prijava je uspjesna."),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Greška prilikom prijave komentara: $e"),
-          ),
-        );
-      }
+    try {
+      await ApiService.reportComment(
+        userReportedId: comment.user.id,
+        reason: reason.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hvala vam, vaša prijava je uspješna.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Greška prilikom prijave komentara: $e')),
+      );
     }
   }
 
   Future<void> _reportReply(CommentReply reply) async {
-    final TextEditingController reasonController = TextEditingController();
-
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Prijavi odgovor"),
-        content: TextField(
-          controller: reasonController,
-          maxLines: 4,
-          decoration: const InputDecoration(
-            hintText: "Opišite zašto prijavljujete ovaj odgovor...",
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Otkaži"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Prijavi"),
-          ),
-        ],
-      ),
+    final reason = await _showReportDialog(
+      title: 'Prijavi odgovor',
+      hintText: 'Opišite zašto prijavljujete ovaj odgovor...',
     );
 
-    if (confirmed == true) {
-      final reason = reasonController.text.trim();
-      if (reason.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Molimo unesite razlog prijave."),
-          ),
-        );
-        return;
-      }
+    if (reason == null) return;
 
-      final reportedUserId = reply.user?.id ?? reply.userId;
+    if (reason.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Molimo unesite razlog prijave.')),
+      );
+      return;
+    }
 
-      if (reportedUserId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Nije moguće prijaviti ovaj odgovor."),
-          ),
-        );
-        return;
-      }
+    final reportedUserId = reply.user?.id ?? reply.userId;
 
-      try {
-        await ApiService.reportComment(
-          userReportedId: reportedUserId,
-          reason: reason,
-        );
+    if (reportedUserId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nije moguće prijaviti ovaj odgovor.')),
+      );
+      return;
+    }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Hvala vam, vaša prijava je uspješna."),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Greška prilikom prijave odgovora: $e"),
-          ),
-        );
-      }
+    try {
+      await ApiService.reportComment(
+        userReportedId: reportedUserId,
+        reason: reason.trim(),
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hvala vam, vaša prijava je uspješna.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Greška prilikom prijave odgovora: $e')),
+      );
     }
   }
 
@@ -419,10 +612,10 @@ class _MessagesPageState extends State<MessagesPage> {
     return out.length > 2 ? out.substring(0, 2) : out;
   }
 
- Widget _profileAvatar({
-  required String initials,
-  String? imageUrl,
-  double radius = 16,
+  Widget _profileAvatar({
+    required String initials,
+    String? imageUrl,
+    double radius = 16,
   }) {
     final url = ApiService.getImageUrl(imageUrl);
 
@@ -506,30 +699,29 @@ class _MessagesPageState extends State<MessagesPage> {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                ...comments.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final comment = entry.value;
-                  return _commentCard(index, comment);
-                }),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: commentController,
-                        decoration: const InputDecoration(
-                          hintText: "Napiši komentar...",
-                          filled: true,
-                          fillColor: Colors.white,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(12)),
-                            borderSide: BorderSide.none,
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: commentController,
+                          decoration: const InputDecoration(
+                            hintText: "Napiši komentar...",
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.all(
+                                Radius.circular(12),
+                              ),
+                              borderSide: BorderSide.none,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 5, top: 6),
-                      child: IconButton(
+                      const SizedBox(width: 6),
+                      IconButton(
                         icon: const Icon(
                           Icons.send,
                           size: 25,
@@ -537,9 +729,32 @@ class _MessagesPageState extends State<MessagesPage> {
                         ),
                         onPressed: () => _addComment(commentController.text),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                ...comments.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final comment = entry.value;
+                  return _commentCard(index, comment);
+                }),
+                if (_hasMore)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: InkWell(
+                      onTap:
+                          _isLoadingMore
+                              ? null
+                              : () => loadComments(reset: false),
+                      child: Text(
+                        _isLoadingMore ? 'Učitavanje...' : 'Učitaj još',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -627,8 +842,11 @@ class _MessagesPageState extends State<MessagesPage> {
           Row(
             children: [
               _profileAvatar(
-                initials: _initials(comment.user.firstName, comment.user.lastName),
-                imageUrl: comment.user.profileImage, 
+                initials: _initials(
+                  comment.user.firstName,
+                  comment.user.lastName,
+                ),
+                imageUrl: comment.user.profileImage,
                 radius: 16,
               ),
               const SizedBox(width: 10),
@@ -644,7 +862,11 @@ class _MessagesPageState extends State<MessagesPage> {
 
               if (!_isOwnerOfComment(comment))
                 IconButton(
-                  icon: const Icon(Icons.flag_outlined, size: 18, color: Colors.black87),
+                  icon: const Icon(
+                    Icons.flag_outlined,
+                    size: 18,
+                    color: Colors.black87,
+                  ),
                   tooltip: "Prijavi komentar",
                   onPressed: () => _reportComment(comment),
                 ),
@@ -746,13 +968,14 @@ class _MessagesPageState extends State<MessagesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-                    Row(
+          Row(
             children: [
               _profileAvatar(
-                initials: reply.user != null
-                    ? _initials(reply.user!.firstName, reply.user!.lastName)
-                    : _initials(userName, null), // fallback
-                imageUrl: reply.user?.profileImage, 
+                initials:
+                    reply.user != null
+                        ? _initials(reply.user!.firstName, reply.user!.lastName)
+                        : _initials(userName, null), // fallback
+                imageUrl: reply.user?.profileImage,
                 radius: 14,
               ),
               const SizedBox(width: 10),
@@ -760,7 +983,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 userName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-               const Spacer(),
+              const Spacer(),
               Text(
                 DateFormat('dd.MM.yyyy').format(reply.createdAt.toLocal()),
                 style: const TextStyle(fontSize: 12, color: Colors.black),
@@ -768,7 +991,11 @@ class _MessagesPageState extends State<MessagesPage> {
 
               if (!_isOwnerOfReply(reply))
                 IconButton(
-                  icon: const Icon(Icons.flag_outlined, size: 18, color: Colors.black87),
+                  icon: const Icon(
+                    Icons.flag_outlined,
+                    size: 18,
+                    color: Colors.black87,
+                  ),
                   tooltip: "Prijavi odgovor",
                   onPressed: () => _reportReply(reply),
                 ),

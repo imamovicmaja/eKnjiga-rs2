@@ -13,6 +13,10 @@ import './add_city.dart';
 import './add_country.dart';
 
 import '../services/api_service.dart';
+import '../models/user.dart';
+import '../models/role.dart';
+import '../models/city.dart';
+import '../models/country.dart';
 
 class UserPage extends StatefulWidget {
   const UserPage({super.key});
@@ -40,13 +44,25 @@ class _UserPageState extends State<UserPage> {
   final TextEditingController _countryNameCtrl = TextEditingController();
   final TextEditingController _countryCodeCtrl = TextEditingController();
 
+  int _usersPage = 1;
+  int _rolesPage = 1;
+  int _citiesPage = 1;
+  int _countriesPage = 1;
+
+  static const int _pageSize = 10;
+
+  bool _usersHasMore = true;
+  bool _rolesHasMore = true;
+  bool _citiesHasMore = true;
+  bool _countriesHasMore = true;
+
   Timer? _debounce;
   static const _debounceMs = 450;
 
-  List<Map<String, dynamic>> users = [];
-  List<Map<String, dynamic>> roles = [];
-  List<Map<String, dynamic>> cities = [];
-  List<Map<String, dynamic>> countries = [];
+  List<User> users = [];
+  List<Role> roles = [];
+  List<City> cities = [];
+  List<Country> countries = [];
 
   bool _loadingRoles = false;
   bool _loadingUsers = false;
@@ -95,8 +111,13 @@ class _UserPageState extends State<UserPage> {
     String? username,
     String? email,
     int? roleId,
+    bool reset = true,
   }) async {
     try {
+      if (reset) {
+        _usersPage = 1;
+      }
+
       if (mounted) setState(() => _loadingUsers = true);
 
       final fetched = await ApiService.fetchUsers(
@@ -105,13 +126,57 @@ class _UserPageState extends State<UserPage> {
         username: username,
         email: email,
         roleId: roleId,
+        page: _usersPage,
+        pageSize: _pageSize,
       );
 
+      if (!mounted) return;
       setState(() {
         users = fetched;
+        _usersHasMore = fetched.length == _pageSize;
       });
     } catch (e) {
       debugPrint("Greška pri učitavanju korisnika: $e");
+    } finally {
+      if (mounted) setState(() => _loadingUsers = false);
+    }
+  }
+
+  Future<void> loadMoreUsers() async {
+    if (!_usersHasMore || _loadingUsers) return;
+
+    final nextPage = _usersPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingUsers = true);
+
+      final fetched = await ApiService.fetchUsers(
+        firstName:
+            _firstNameCtrl.text.trim().isEmpty
+                ? null
+                : _firstNameCtrl.text.trim(),
+        lastName:
+            _lastNameCtrl.text.trim().isEmpty
+                ? null
+                : _lastNameCtrl.text.trim(),
+        username:
+            _usernameCtrl.text.trim().isEmpty
+                ? null
+                : _usernameCtrl.text.trim(),
+        email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+        roleId: _selectedRoleId,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _usersPage = nextPage;
+        users.addAll(fetched);
+        _usersHasMore = fetched.length == _pageSize;
+      });
+    } catch (e) {
+      debugPrint("Greška pri učitavanju još korisnika: $e");
     } finally {
       if (mounted) setState(() => _loadingUsers = false);
     }
@@ -144,25 +209,54 @@ class _UserPageState extends State<UserPage> {
     });
   }
 
-  Future<void> loadRolesFromApi({String? name}) async {
+  Future<void> loadRolesFromApi({String? name, bool reset = true}) async {
     try {
+      if (reset) {
+        _rolesPage = 1;
+      }
+
       if (mounted) setState(() => _loadingRoles = true);
 
-      final fetched = await ApiService.fetchRoles(name: name);
+      final fetched = await ApiService.fetchRoles(
+        name: name,
+        page: _rolesPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
       setState(() {
-        roles =
-            fetched
-                .map(
-                  (role) => {
-                    'id': role.id,
-                    'name': role.name,
-                    'description': role.description,
-                  },
-                )
-                .toList();
+        roles = fetched;
+        _rolesHasMore = fetched.length == _pageSize;
       });
     } catch (e) {
       debugPrint("Greška pri učitavanju uloga: $e");
+    } finally {
+      if (mounted) setState(() => _loadingRoles = false);
+    }
+  }
+
+  Future<void> loadMoreRoles() async {
+    if (!_rolesHasMore || _loadingRoles) return;
+
+    final nextPage = _rolesPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingRoles = true);
+
+      final fetched = await ApiService.fetchRoles(
+        name: _roleSearchQuery.trim().isEmpty ? null : _roleSearchQuery.trim(),
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _rolesPage = nextPage;
+        roles.addAll(fetched);
+        _rolesHasMore = fetched.length == _pageSize;
+      });
+    } catch (e) {
+      debugPrint("Greška pri učitavanju još uloga: $e");
     } finally {
       if (mounted) setState(() => _loadingRoles = false);
     }
@@ -183,29 +277,69 @@ class _UserPageState extends State<UserPage> {
     });
   }
 
-  Future<void> loadCitiesFromApi({String? name, int? zipCode}) async {
+  Future<void> loadCitiesFromApi({
+    String? name,
+    int? zipCode,
+    bool reset = true,
+  }) async {
     try {
+      if (reset) {
+        _citiesPage = 1;
+      }
+
       if (mounted) setState(() => _loadingCities = true);
 
       final fetched = await ApiService.fetchCities(
         name: name,
         zipCode: zipCode,
+        page: _citiesPage,
+        pageSize: _pageSize,
       );
+
+      if (!mounted) return;
       setState(() {
-        cities =
-            fetched
-                .map(
-                  (city) => {
-                    'id': city.id,
-                    'name': city.name,
-                    'zipCode': city.zipCode,
-                    'country': city.country,
-                  },
-                )
-                .toList();
+        cities = fetched;
+        _citiesHasMore = fetched.length == _pageSize;
       });
     } catch (e) {
       debugPrint("Greška pri učitavanju gradova: $e");
+    } finally {
+      if (mounted) setState(() => _loadingCities = false);
+    }
+  }
+
+  Future<void> loadMoreCities() async {
+    if (!_citiesHasMore || _loadingCities) return;
+
+    final nextPage = _citiesPage + 1;
+
+    final zipStr = _cityZipCtrl.text.trim();
+    final zip =
+        zipStr.isEmpty
+            ? null
+            : int.tryParse(zipStr.replaceAll(RegExp(r'[^0-9]'), ''));
+
+    try {
+      if (mounted) setState(() => _loadingCities = true);
+
+      final fetched = await ApiService.fetchCities(
+        name:
+            _cityNameCtrl.text.trim().isEmpty
+                ? null
+                : _cityNameCtrl.text.trim(),
+        zipCode: zip,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _citiesPage = nextPage;
+        cities.addAll(fetched);
+        _citiesHasMore = fetched.length == _pageSize;
+      });
+    } catch (e) {
+      debugPrint("Greška pri učitavanju još gradova: $e");
     } finally {
       if (mounted) setState(() => _loadingCities = false);
     }
@@ -233,19 +367,66 @@ class _UserPageState extends State<UserPage> {
     });
   }
 
-  Future<void> loadCountriesFromApi({String? name, String? code}) async {
+  Future<void> loadCountriesFromApi({
+    String? name,
+    String? code,
+    bool reset = true,
+  }) async {
     try {
+      if (reset) {
+        _countriesPage = 1;
+      }
+
       if (mounted) setState(() => _loadingCountries = true);
 
-      final fetched = await ApiService.fetchCountries(name: name, code: code);
+      final fetched = await ApiService.fetchCountries(
+        name: name,
+        code: code,
+        page: _countriesPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
       setState(() {
-        countries =
-            fetched
-                .map((c) => {'id': c.id, 'name': c.name, 'code': c.code})
-                .toList();
+        countries = fetched;
+        _countriesHasMore = fetched.length == _pageSize;
       });
     } catch (e) {
       debugPrint("Greška pri dohvaćanju država: $e");
+    } finally {
+      if (mounted) setState(() => _loadingCountries = false);
+    }
+  }
+
+  Future<void> loadMoreCountries() async {
+    if (!_countriesHasMore || _loadingCountries) return;
+
+    final nextPage = _countriesPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingCountries = true);
+
+      final fetched = await ApiService.fetchCountries(
+        name:
+            _countryNameCtrl.text.trim().isEmpty
+                ? null
+                : _countryNameCtrl.text.trim(),
+        code:
+            _countryCodeCtrl.text.trim().isEmpty
+                ? null
+                : _countryCodeCtrl.text.trim(),
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _countriesPage = nextPage;
+        countries.addAll(fetched);
+        _countriesHasMore = fetched.length == _pageSize;
+      });
+    } catch (e) {
+      debugPrint("Greška pri učitavanju još država: $e");
     } finally {
       if (mounted) setState(() => _loadingCountries = false);
     }
@@ -321,7 +502,11 @@ class _UserPageState extends State<UserPage> {
                       ],
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: () async {
+                        await ApiService.logout();
+
+                        if (!context.mounted) return;
+
                         Navigator.pushAndRemoveUntil(
                           context,
                           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -494,8 +679,8 @@ class _UserPageState extends State<UserPage> {
                                               ),
                                               ...roles.map(
                                                 (r) => DropdownMenuItem(
-                                                  value: r['id'] as int,
-                                                  child: Text(r['name']),
+                                                  value: r.id,
+                                                  child: Text(r.name),
                                                 ),
                                               ),
                                             ],
@@ -514,6 +699,9 @@ class _UserPageState extends State<UserPage> {
                                             _lastNameCtrl.clear();
                                             _usernameCtrl.clear();
                                             _emailCtrl.clear();
+                                            setState(() {
+                                              _selectedRoleId = null;
+                                            });
                                             _onUserFieldChanged();
                                           },
                                           icon: const Icon(Icons.restart_alt),
@@ -820,218 +1008,261 @@ class _UserPageState extends State<UserPage> {
   Widget _buildContent() {
     switch (selectedSidebar) {
       case "KORISNICI":
-        return users.isEmpty
-            ? (_loadingUsers
-                ? const Center(child: CircularProgressIndicator())
-                : const Center(child: Text("Nema rezultata.")))
-            : ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              children:
-                  users.map((user) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: userCard(
-                        user['id'],
-                        user['name'],
-                        user['email'],
-                        user['roleName'],
-                        Icons.person,
-                        context,
-                        user,
-                        () => loadUsersFromApi(
-                          firstName:
-                              _firstNameCtrl.text.trim().isEmpty
-                                  ? null
-                                  : _firstNameCtrl.text.trim(),
-                          lastName:
-                              _lastNameCtrl.text.trim().isEmpty
-                                  ? null
-                                  : _lastNameCtrl.text.trim(),
-                          username:
-                              _usernameCtrl.text.trim().isEmpty
-                                  ? null
-                                  : _usernameCtrl.text.trim(),
-                          email:
-                              _emailCtrl.text.trim().isEmpty
-                                  ? null
-                                  : _emailCtrl.text.trim(),
+        if (users.isEmpty) {
+          return _loadingUsers
+              ? const Center(child: CircularProgressIndicator())
+              : const Center(child: Text("Nema rezultata."));
+        }
+
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                itemCount: users.length + (_usersHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == users.length) {
+                    return InkWell(
+                      onTap: _loadingUsers ? null : loadMoreUsers,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingUsers ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
                         ),
                       ),
                     );
-                  }).toList(),
-            );
+                  }
+
+                  final user = users[index];
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: userCard(
+                      user.id,
+                      user.fullName,
+                      user.email,
+                      user.roleName,
+                      Icons.person,
+                      context,
+                      user,
+                      () => loadUsersFromApi(
+                        firstName:
+                            _firstNameCtrl.text.trim().isEmpty
+                                ? null
+                                : _firstNameCtrl.text.trim(),
+                        lastName:
+                            _lastNameCtrl.text.trim().isEmpty
+                                ? null
+                                : _lastNameCtrl.text.trim(),
+                        username:
+                            _usernameCtrl.text.trim().isEmpty
+                                ? null
+                                : _usernameCtrl.text.trim(),
+                        email:
+                            _emailCtrl.text.trim().isEmpty
+                                ? null
+                                : _emailCtrl.text.trim(),
+                        roleId: _selectedRoleId,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
 
       case "ULOGE":
-        return roles.isEmpty
-            ? (_loadingRoles
-                ? const Center(child: CircularProgressIndicator())
-                : const Center(child: Text("Nema rezultata.")))
-            : ListView.builder(
-              itemCount: roles.length,
-              itemBuilder: (context, index) {
-                final role = roles[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(
-                      Icons.badge,
-                      color: Color.fromARGB(255, 181, 156, 74),
-                    ),
-                    title: Text(
-                      role['name'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(role['description']),
-                    trailing: Wrap(
-                      spacing: 12,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () {
-                            addRole(
-                              context,
-                              () => loadRolesFromApi(
-                                name:
-                                    _roleSearchQuery.trim().isEmpty
-                                        ? null
-                                        : _roleSearchQuery.trim(),
-                              ),
-                              initialData: role,
-                            );
-                          },
+        if (roles.isEmpty) {
+          return _loadingRoles
+              ? const Center(child: CircularProgressIndicator())
+              : const Center(child: Text("Nema rezultata."));
+        }
+
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: roles.length + (_rolesHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == roles.length) {
+                    return InkWell(
+                      onTap: _loadingRoles ? null : loadMoreRoles,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingRoles ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder:
-                                  (_) => AlertDialog(
-                                    title: const Text("Potvrda"),
-                                    content: const Text(
-                                      "Da li sigurno želiš obrisati ulogu?",
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, false),
-                                        child: const Text("Otkaži"),
-                                      ),
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, true),
-                                        child: const Text("Obriši"),
-                                      ),
-                                    ],
-                                  ),
-                            );
-                            if (confirm == true) {
-                              try {
-                                await ApiService.deleteRole(role['id']);
-                                loadRolesFromApi(
+                      ),
+                    );
+                  }
+                  final role = roles[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.badge,
+                        color: Color.fromARGB(255, 181, 156, 74),
+                      ),
+                      title: Text(
+                        role.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(role.description),
+                      trailing: Wrap(
+                        spacing: 12,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () {
+                              addRole(
+                                context,
+                                () => loadRolesFromApi(
                                   name:
                                       _roleSearchQuery.trim().isEmpty
                                           ? null
                                           : _roleSearchQuery.trim(),
-                                );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("Uloga obrisana"),
-                                  ),
-                                );
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text("Greška pri brisanju: $e"),
-                                  ),
-                                );
+                                ),
+                                initialData: role.toJson(),
+                              );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder:
+                                    (_) => AlertDialog(
+                                      title: const Text("Potvrda"),
+                                      content: const Text(
+                                        "Da li sigurno želiš obrisati ulogu?",
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, false),
+                                          child: const Text("Otkaži"),
+                                        ),
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, true),
+                                          child: const Text("Obriši"),
+                                        ),
+                                      ],
+                                    ),
+                              );
+
+                              if (confirm == true) {
+                                try {
+                                  await ApiService.deleteRole(role.id);
+                                  loadRolesFromApi(
+                                    name:
+                                        _roleSearchQuery.trim().isEmpty
+                                            ? null
+                                            : _roleSearchQuery.trim(),
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Uloga obrisana"),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text("Greška pri brisanju: $e"),
+                                    ),
+                                  );
+                                }
                               }
-                            }
-                          },
-                        ),
-                      ],
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
+                  );
+                },
+              ),
+            ),
+          ],
+        );
 
       case "GRADOVI":
-        return cities.isEmpty
-            ? (_loadingCities
-                ? const Center(child: CircularProgressIndicator())
-                : const Center(child: Text("Nema rezultata.")))
-            : ListView.builder(
-              itemCount: cities.length,
-              itemBuilder: (context, index) {
-                final city = cities[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(
-                      Icons.location_city,
-                      color: Color.fromARGB(255, 181, 156, 74),
-                    ),
-                    title: Text(
-                      city['name'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      "Poštanski broj: ${city['zipCode']}\nDržava: ${city['country'].name}",
-                    ),
-                    isThreeLine: true,
-                    trailing: Wrap(
-                      spacing: 12,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () {
-                            addCity(context, () {
-                              final name = _cityNameCtrl.text.trim();
-                              final zip = int.tryParse(
-                                _cityZipCtrl.text.trim(),
-                              );
-                              loadCitiesFromApi(
-                                name: name.isEmpty ? null : name,
-                                zipCode: zip,
-                              );
-                            }, initialData: city);
-                          },
+        if (cities.isEmpty) {
+          return _loadingCities
+              ? const Center(child: CircularProgressIndicator())
+              : const Center(child: Text("Nema rezultata."));
+        }
+
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: cities.length + (_citiesHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == cities.length) {
+                    return InkWell(
+                      onTap: _loadingCities ? null : loadMoreCities,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingCities ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder:
-                                  (_) => AlertDialog(
-                                    title: const Text("Potvrda"),
-                                    content: const Text(
-                                      "Da li sigurno želiš obrisati grad?",
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, false),
-                                        child: const Text("Otkaži"),
-                                      ),
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, true),
-                                        child: const Text("Obriši"),
-                                      ),
-                                    ],
-                                  ),
-                            );
-                            if (confirm == true) {
-                              try {
-                                await ApiService.deleteCity(city['id']);
+                      ),
+                    );
+                  }
+                  final city = cities[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.location_city,
+                        color: Color.fromARGB(255, 181, 156, 74),
+                      ),
+                      title: Text(
+                        city.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text(
+                        "Poštanski broj: ${city.zipCode}\nDržava: ${city.country?.name ?? ''}",
+                      ),
+                      isThreeLine: true,
+                      trailing: Wrap(
+                        spacing: 12,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () {
+                              addCity(context, () {
                                 final name = _cityNameCtrl.text.trim();
                                 final zip = int.tryParse(
                                   _cityZipCtrl.text.trim(),
@@ -1040,133 +1271,207 @@ class _UserPageState extends State<UserPage> {
                                   name: name.isEmpty ? null : name,
                                   zipCode: zip,
                                 );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("Grad uspješno obrisan"),
-                                  ),
-                                );
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      e.toString().replaceFirst(
-                                        "Exception: ",
-                                        "",
+                              }, initialData: city.toJson());
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder:
+                                    (_) => AlertDialog(
+                                      title: const Text("Potvrda"),
+                                      content: const Text(
+                                        "Da li sigurno želiš obrisati grad?",
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, false),
+                                          child: const Text("Otkaži"),
+                                        ),
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, true),
+                                          child: const Text("Obriši"),
+                                        ),
+                                      ],
+                                    ),
+                              );
+
+                              if (confirm == true) {
+                                try {
+                                  await ApiService.deleteCity(city.id);
+                                  final name = _cityNameCtrl.text.trim();
+                                  final zip = int.tryParse(
+                                    _cityZipCtrl.text.trim(),
+                                  );
+                                  loadCitiesFromApi(
+                                    name: name.isEmpty ? null : name,
+                                    zipCode: zip,
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Grad uspješno obrisan"),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        e.toString().replaceFirst(
+                                          "Exception: ",
+                                          "",
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                );
+                                  );
+                                }
                               }
-                            }
-                          },
-                        ),
-                      ],
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
+                  );
+                },
+              ),
+            ),
+          ],
+        );
 
       case "DRŽAVE":
-        return countries.isEmpty
-            ? (_loadingCountries
-                ? const Center(child: CircularProgressIndicator())
-                : const Center(child: Text("Nema rezultata.")))
-            : ListView.builder(
-              itemCount: countries.length,
-              itemBuilder: (context, index) {
-                final country = countries[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: ListTile(
-                    leading: const Icon(
-                      Icons.public,
-                      color: Color.fromARGB(255, 181, 156, 74),
-                    ),
-                    title: Text(
-                      country['name'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text("Kod: ${country['code']}"),
-                    trailing: Wrap(
-                      spacing: 12,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, color: Colors.blue),
-                          onPressed: () {
-                            addCountry(context, () {
-                              final name = _countryNameCtrl.text.trim();
-                              final code = _countryCodeCtrl.text.trim();
-                              loadCountriesFromApi(
-                                name: name.isEmpty ? null : name,
-                                code: code.isEmpty ? null : code,
-                              );
-                            }, initialData: country);
-                          },
+        if (countries.isEmpty) {
+          return _loadingCountries
+              ? const Center(child: CircularProgressIndicator())
+              : const Center(child: Text("Nema rezultata."));
+        }
+
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: countries.length + (_countriesHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == countries.length) {
+                    return InkWell(
+                      onTap: _loadingCountries ? null : loadMoreCountries,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingCountries ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder:
-                                  (_) => AlertDialog(
-                                    title: const Text("Potvrda"),
-                                    content: const Text(
-                                      "Da li sigurno želiš obrisati državu?",
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, false),
-                                        child: const Text("Otkaži"),
-                                      ),
-                                      TextButton(
-                                        onPressed:
-                                            () => Navigator.pop(context, true),
-                                        child: const Text("Obriši"),
-                                      ),
-                                    ],
-                                  ),
-                            );
-                            if (confirm == true) {
-                              try {
-                                await ApiService.deleteCountry(country['id']);
+                      ),
+                    );
+                  }
+                  final country = countries[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListTile(
+                      leading: const Icon(
+                        Icons.public,
+                        color: Color.fromARGB(255, 181, 156, 74),
+                      ),
+                      title: Text(
+                        country.name,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      subtitle: Text("Kod: ${country.code}"),
+                      trailing: Wrap(
+                        spacing: 12,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: () {
+                              addCountry(context, () {
                                 final name = _countryNameCtrl.text.trim();
                                 final code = _countryCodeCtrl.text.trim();
                                 loadCountriesFromApi(
                                   name: name.isEmpty ? null : name,
                                   code: code.isEmpty ? null : code,
                                 );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text("Država obrisana"),
-                                  ),
-                                );
-                              } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      e.toString().replaceFirst(
-                                        "Exception: ",
-                                        "",
+                              }, initialData: country.toJson());
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder:
+                                    (_) => AlertDialog(
+                                      title: const Text("Potvrda"),
+                                      content: const Text(
+                                        "Da li sigurno želiš obrisati državu?",
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, false),
+                                          child: const Text("Otkaži"),
+                                        ),
+                                        TextButton(
+                                          onPressed:
+                                              () =>
+                                                  Navigator.pop(context, true),
+                                          child: const Text("Obriši"),
+                                        ),
+                                      ],
+                                    ),
+                              );
+
+                              if (confirm == true) {
+                                try {
+                                  await ApiService.deleteCountry(country.id);
+                                  final name = _countryNameCtrl.text.trim();
+                                  final code = _countryCodeCtrl.text.trim();
+                                  loadCountriesFromApi(
+                                    name: name.isEmpty ? null : name,
+                                    code: code.isEmpty ? null : code,
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("Država obrisana"),
+                                    ),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        e.toString().replaceFirst(
+                                          "Exception: ",
+                                          "",
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                );
+                                  );
+                                }
                               }
-                            }
-                          },
-                        ),
-                      ],
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            );
+                  );
+                },
+              ),
+            ),
+          ],
+        );
 
       default:
         return const Center(child: Text("Odaberi stavku iz menija"));
@@ -1235,7 +1540,7 @@ class _UserPageState extends State<UserPage> {
     String roleName,
     IconData icon,
     BuildContext context,
-    Map<String, dynamic> user,
+    User user,
     VoidCallback refreshUsers,
   ) {
     return GestureDetector(
@@ -1284,7 +1589,7 @@ class _UserPageState extends State<UserPage> {
               onPressed: () async {
                 try {
                   final details = await ApiService.getUserDetails(id);
-                  addUser(context, refreshUsers, initialData: details);
+                  addUser(context, refreshUsers, initialData: details.toJson());
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -1388,18 +1693,20 @@ class _UserPageState extends State<UserPage> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _infoRow("Ime", "${user['firstName']} ${user['lastName']}"),
-                    _infoRow("Email", user['email']),
-                    _infoRow("Username", user['username']),
-                    _infoRow("Telefon", user['phoneNumber']),
+                    _infoRow("Ime", user.fullName),
+                    _infoRow("Email", user.email),
+                    _infoRow("Username", user.username),
+                    _infoRow("Telefon", user.phoneNumber ?? ''),
                     _infoRow(
                       "Datum rođenja",
-                      formatShortDate(DateTime.parse(user['birthDate'])),
+                      user.birthDate != null
+                          ? formatShortDate(user.birthDate!)
+                          : '',
                     ),
-                    _infoRow("Spol", user['gender']),
+                    _infoRow("Spol", user.gender ?? ''),
                     const Divider(),
-                    _infoRow("Uloga", user['role']['name']),
-                    _infoRow("Grad", user['city']['name']),
+                    _infoRow("Uloga", user.roleName),
+                    _infoRow("Grad", user.cityName),
                   ],
                 ),
               ),

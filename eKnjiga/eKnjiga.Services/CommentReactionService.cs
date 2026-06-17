@@ -1,14 +1,13 @@
-using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services.Database;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System.Linq;
-using System;
+
 using System.Security.Claims;
-using System.Threading.Tasks;
+
 
 namespace eKnjiga.Services
 {
@@ -45,10 +44,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private void EnsureUserAuthenticated()
@@ -57,34 +56,37 @@ namespace eKnjiga.Services
                 throw new UnauthorizedAccessException("User is not authenticated.");
         }
 
-        private int ResolveUserId(int requestUserId)
+        private int ResolveUserId()
         {
             EnsureUserAuthenticated();
-
-            if (IsAdmin())
-                return requestUserId;
-
             return GetCurrentUserId()!.Value;
         }
 
         public async Task<PagedResult<CommentReactionResponse>> GetAsync(CommentReactionSearchObject search)
         {
+            search ??= new CommentReactionSearchObject();
+
             var query = _context.CommentReactions.AsQueryable();
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderBy(r => r.UserId)
+                         .ThenBy(r => r.CommentId)
+                         .ThenBy(r => r.CommentAnswerId);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
-                totalCount = await query.CountAsync();
-
-            if (!search.RetrieveAll)
             {
-                if (search.Page.HasValue)
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-
-                if (search.PageSize.HasValue)
-                    query = query.Take(search.PageSize.Value);
+                totalCount = await query.CountAsync();
             }
+
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 
@@ -105,7 +107,7 @@ namespace eKnjiga.Services
                 throw new ArgumentException("Potrebno je navesti tačno jedan od CommentId ili CommentAnswerId.");
             }
 
-            var resolvedUserId = ResolveUserId(request.UserId);
+            var resolvedUserId = ResolveUserId();
 
             var existing = await _context.CommentReactions
                 .FirstOrDefaultAsync(r =>
@@ -161,7 +163,7 @@ namespace eKnjiga.Services
                 throw new ArgumentException("Potrebno je navesti tačno jedan od CommentId ili CommentAnswerId.");
             }
 
-            var resolvedUserId = ResolveUserId(request.UserId);
+            var resolvedUserId = ResolveUserId();
 
             var existing = await _context.CommentReactions
                 .FirstOrDefaultAsync(r =>

@@ -1,17 +1,12 @@
 using eKnjiga.Services.Database;
 using Microsoft.EntityFrameworkCore;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.SearchObjects;
-using System.Linq;
-using System;
-using System.Security.Cryptography;
-using System.Collections.Generic;
-using eKnjiga.Model.Messages;   
+using System.Security.Cryptography; 
 using eKnjiga.Services.Messaging;
 using Microsoft.AspNetCore.Http;
+using eKnjiga.Model.Constants;
 
 namespace eKnjiga.Services
 {
@@ -69,23 +64,21 @@ namespace eKnjiga.Services
             if (!string.IsNullOrEmpty(search.Email))
                 query = query.Where(u => u.Email.Contains(search.Email));
 
+            query = query.OrderByDescending(u => u.CreatedAt);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var users = await query.ToListAsync();
 
@@ -113,10 +106,7 @@ namespace eKnjiga.Services
         private string HashPassword(string password, out byte[] salt)
         {
             salt = new byte[SaltSize];
-            using (var rng = new RNGCryptoServiceProvider())
-            {
-                rng.GetBytes(salt);
-            }
+            RandomNumberGenerator.Fill(salt);
 
             using (var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations))
             {
@@ -304,7 +294,7 @@ namespace eKnjiga.Services
             return hash.SequenceEqual(hashBytes);
         }
 
-        public async Task<UserResponse> Register(UserUpsertRequest request)
+        public async Task<UserResponse> Register(RegisterRequest request)
         {
             if (await _context.Users.AnyAsync(u => u.Email == request.Email))
                 throw new InvalidOperationException("Korisnik s ovom email adresom već postoji.");
@@ -312,7 +302,12 @@ namespace eKnjiga.Services
             if (await _context.Users.AnyAsync(u => u.Username == request.Username))
                 throw new InvalidOperationException("Korisnik s ovim korisničkim imenom već postoji.");
 
-            var userRole = await _roleService.GetByNameAsync("user");
+            var userRole = await _roleService.GetByNameAsync(RoleNames.User);
+
+            if (userRole == null)
+                throw new InvalidOperationException("Uloga User ne postoji.");
+
+            byte[] salt;
 
             var user = new User
             {
@@ -325,24 +320,125 @@ namespace eKnjiga.Services
                 Gender = request.Gender,
                 CityId = request.CityId,
                 RoleId = userRole.Id,
+                PasswordHash = HashPassword(request.Password, out salt),
+                PasswordSalt = Convert.ToBase64String(salt),
                 CreatedAt = DateTime.UtcNow
             };
-
-            if (!string.IsNullOrEmpty(request.Password))
-            {
-                byte[] salt;
-                user.PasswordHash = HashPassword(request.Password, out salt);
-                user.PasswordSalt = Convert.ToBase64String(salt);
-            }
 
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
             await _emailQueue.EnqueueAsync(EmailTemplates.Welcome(user));
 
-            return await GetByIdAsync(user.Id) ?? throw new InvalidOperationException("Kreiranje korisnika nije uspjelo.");
+            return await GetByIdAsync(user.Id)
+                ?? throw new InvalidOperationException("Kreiranje korisnika nije uspjelo.");
         }
 
+        public async Task<UserResponse?> UpdateMyProfileAsync(int id, UpdateMyProfileRequest request)
+        {
+            var user = await _context.Users.FindAsync(id);
+
+            if (user == null)
+                return null;
+
+            if (await _context.Users.AnyAsync(u => u.Email == request.Email && u.Id != id))
+                throw new InvalidOperationException("Korisnik s ovom email adresom već postoji.");
+
+            if (await _context.Users.AnyAsync(u => u.Username == request.Username && u.Id != id))
+                throw new InvalidOperationException("Korisnik s ovim korisničkim imenom već postoji.");
+
+            user.FirstName = request.FirstName;
+            user.LastName = request.LastName;
+            user.Email = request.Email;
+            user.Username = request.Username;
+            user.PhoneNumber = request.PhoneNumber;
+            user.BirthDate = request.BirthDate;
+            user.Gender = request.Gender;
+            user.CityId = request.CityId;
+
+            if (!string.IsNullOrWhiteSpace(request.Password))
+            {
+                if (request.Password != request.ConfirmPassword)
+                {
+                    throw new InvalidOperationException(
+                        "Potvrda lozinke mora biti ista kao nova lozinka."
+                    );
+                }
+
+                if (string.IsNullOrWhiteSpace(request.OldPassword))
+                {
+                    throw new InvalidOperationException(
+                        "Za promjenu lozinke morate unijeti trenutnu lozinku."
+                    );
+                }
+
+                var oldPasswordValid = VerifyPassword(
+                    request.OldPassword,
+                    user.PasswordHash,
+                    user.PasswordSalt
+                );
+
+                if (!oldPasswordValid)
+                {
+                    throw new InvalidOperationException(
+                        "Trenutna lozinka nije ispravna."
+                    );
+                }
+
+                byte[] salt;
+
+                user.PasswordHash = HashPassword(
+                    request.Password,
+                    out salt
+                );
+
+                user.PasswordSalt = Convert.ToBase64String(salt);
+            }
+
+            await _context.SaveChangesAsync();
+
+            return await GetByIdAsync(user.Id);
+        }
+
+        public async Task<UserResponse?> AdminUpdateAsync(int id, AdminUpdateUserRequest request)
+        {
+            var user = await _context.Users.FindAsync(id);
+
+            if (user == null)
+                return null;
+
+            if (await _context.Users.AnyAsync(u => u.Email == request.Email && u.Id != id))
+                throw new InvalidOperationException("Korisnik s ovom email adresom već postoji.");
+
+            if (await _context.Users.AnyAsync(u => u.Username == request.Username && u.Id != id))
+                throw new InvalidOperationException("Korisnik s ovim korisničkim imenom već postoji.");
+
+            var roleExists = await _context.Roles.AnyAsync(r => r.Id == request.RoleId);
+
+            if (!roleExists)
+                throw new InvalidOperationException("Odabrana uloga ne postoji.");
+
+            user.FirstName = request.FirstName;
+            user.LastName = request.LastName;
+            user.Email = request.Email;
+            user.Username = request.Username;
+            user.PhoneNumber = request.PhoneNumber;
+            user.BirthDate = request.BirthDate;
+            user.Gender = request.Gender;
+            user.CityId = request.CityId;
+            user.RoleId = request.RoleId;
+
+            if (!string.IsNullOrWhiteSpace(request.Password))
+            {
+                byte[] salt;
+                user.PasswordHash = HashPassword(request.Password, out salt);
+                user.PasswordSalt = Convert.ToBase64String(salt);
+            }
+
+            await _context.SaveChangesAsync();
+
+            return await GetByIdAsync(user.Id);
+        }
         private void DeleteOldProfileImage(string? relativePath)
         {
             if (string.IsNullOrWhiteSpace(relativePath))
@@ -427,6 +523,23 @@ namespace eKnjiga.Services
                 throw new KeyNotFoundException("Knjiga nije pronađena u korisnikovim knjigama.");
 
             return userBook.IsFavorite;
+        }
+
+        public async Task RevokeTokenAsync(string token, DateTime expiresAt)
+        {
+            var alreadyRevoked = await _context.RevokedTokens
+                .AnyAsync(x => x.Token == token);
+
+            if (alreadyRevoked)
+                return;
+
+            _context.RevokedTokens.Add(new RevokedToken
+            {
+                Token = token,
+                ExpiresAt = expiresAt
+            });
+
+            await _context.SaveChangesAsync();
         }
 
     }

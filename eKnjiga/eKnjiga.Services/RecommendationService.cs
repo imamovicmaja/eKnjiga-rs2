@@ -20,13 +20,14 @@ namespace eKnjiga.Services
             _mapper = mapper;
         }
 
-        private static BookListResponse MapBookToResponse(Book b) => new BookListResponse
+        private static BookListResponse MapBookToResponse(Book b, string? whyRecommended = null) => new BookListResponse
         {
             Id = b.Id,
             Name = b.Name,
             Rating = b.Rating,
             RatingCount = b.RatingCount,
             CoverImage = b.CoverImage,
+            WhyRecommended = whyRecommended,
             Authors = b.BookAuthors?
                 .Select(ba => new AuthorResponse
                 {
@@ -40,6 +41,7 @@ namespace eKnjiga.Services
         public async Task<IReadOnlyList<BookListResponse>> GetRecommendedAsync(int userId, int count = 10, int? categoryId = null)
         {
             var cf = await GetRecommendedCfKnnAsync(userId, count, 25, categoryId);
+
             if (cf.Count > 0)
                 return cf;
 
@@ -67,9 +69,9 @@ namespace eKnjiga.Services
 
             if (userBookIds.Count == 0)
             {
-                var coldBooks = await baseQuery
+                return await baseQuery
                     .AsNoTracking()
-                    .OrderByDescending(b => (b.Rating * (b.RatingCount + 1)))
+                    .OrderByDescending(b => b.Rating * (b.RatingCount + 1))
                     .ThenByDescending(b => b.CreatedAt)
                     .Take(count)
                     .Select(b => new BookListResponse
@@ -79,6 +81,7 @@ namespace eKnjiga.Services
                         Rating = b.Rating,
                         RatingCount = b.RatingCount,
                         CoverImage = b.CoverImage,
+                        WhyRecommended = "Preporučeno jer je popularno među korisnicima.",
                         Authors = b.BookAuthors.Select(ba => new AuthorResponse
                         {
                             Id = ba.Author.Id,
@@ -87,8 +90,6 @@ namespace eKnjiga.Services
                         }).ToList()
                     })
                     .ToListAsync();
-
-                return coldBooks;
             }
 
             var userProfile = await _ctx.Books
@@ -137,16 +138,50 @@ namespace eKnjiga.Services
                 .Select(b =>
                 {
                     int score = 0;
+                    bool matchedCategory = false;
+                    bool matchedAuthor = false;
 
                     foreach (var catId in b.CategoryIds)
+                    {
                         if (favCats.TryGetValue(catId, out var w1))
+                        {
                             score += w1;
+                            matchedCategory = true;
+                        }
+                    }
 
                     foreach (var authorId in b.AuthorIds)
+                    {
                         if (favAuthors.TryGetValue(authorId, out var w2))
+                        {
                             score += w2;
+                            matchedAuthor = true;
+                        }
+                    }
 
-                    score += (int)Math.Round(b.Rating * 10);
+                    if (!matchedAuthor && !matchedCategory)
+                    {
+                        score = 0;
+                    }
+                    else
+                    {
+                        score += (int)Math.Round(b.Rating * 10);
+                    }
+
+                    string whyRecommended;
+
+                    if (matchedAuthor)
+                    {
+                        whyRecommended = "Preporučeno jer često čitate knjige istih ili sličnih autora.";
+                    }
+                    else if (matchedCategory)
+                    {
+                        whyRecommended = "Preporučeno jer ste kupili knjige iz iste kategorije.";
+                    }
+                    else
+                    {
+                        whyRecommended = "";
+                    }
 
                     return new
                     {
@@ -157,19 +192,19 @@ namespace eKnjiga.Services
                             Rating = b.Rating,
                             RatingCount = b.RatingCount,
                             CoverImage = b.CoverImage,
-                            Authors = b.Authors
+                            Authors = b.Authors,
+                            WhyRecommended = whyRecommended
                         },
                         Score = score,
                         CreatedAt = b.CreatedAt
                     };
                 })
+                .Where(x => x.Score > 0)
                 .OrderByDescending(x => x.Score)
                 .ThenByDescending(x => x.CreatedAt)
                 .Take(count)
                 .Select(x => x.Book)
                 .ToList();
-
-            scored = scored.Where(x => !userBookSet.Contains(x.Id)).ToList();
 
             return scored;
         }
@@ -192,9 +227,10 @@ namespace eKnjiga.Services
             var targetCatIds = target.CategoryIds.ToHashSet();
             var targetAuthorIds = target.AuthorIds.ToHashSet();
 
-            var userBookIds = await _ctx.Orders
-                .Where(o => o.UserId == userId)
-                .SelectMany(o => o.OrderItems.Select(oi => oi.BookId))
+            var userBookIds = await _ctx.UserBooks
+                .AsNoTracking()
+                .Where(ub => ub.UserId == userId)
+                .Select(ub => ub.BookId)
                 .Distinct()
                 .ToListAsync();
 
@@ -251,23 +287,65 @@ namespace eKnjiga.Services
                 {
                     int score = 0;
 
+                    var sameTargetCategory = false;
+                    var sameTargetAuthor = false;
+                    var matchedUserCategory = false;
+                    var matchedUserAuthor = false;
+
                     foreach (var catId in b.CategoryIds)
+                    {
                         if (targetCatIds.Contains(catId))
+                        {
                             score += 2;
+                            sameTargetCategory = true;
+                        }
 
-                    foreach (var authorId in b.AuthorIds)
-                        if (targetAuthorIds.Contains(authorId))
-                            score += 3;
-
-                    foreach (var catId in b.CategoryIds)
                         if (favCats.TryGetValue(catId, out var w1))
+                        {
                             score += w1;
+                            matchedUserCategory = true;
+                        }
+                    }
 
                     foreach (var authorId in b.AuthorIds)
+                    {
+                        if (targetAuthorIds.Contains(authorId))
+                        {
+                            score += 3;
+                            sameTargetAuthor = true;
+                        }
+
                         if (favAuthors.TryGetValue(authorId, out var w2))
+                        {
                             score += w2;
+                            matchedUserAuthor = true;
+                        }
+                    }
 
                     score += (int)Math.Round(b.Rating * 10);
+
+                    string whyRecommended;
+
+                    if (sameTargetAuthor)
+                    {
+                        whyRecommended = "Preporučeno jer je knjiga od istog ili sličnog autora.";
+                    }
+                    else if (sameTargetCategory)
+                    {
+                        whyRecommended = "Preporučeno jer je iz iste kategorije kao knjiga koju gledate.";
+                    }
+                    else if (matchedUserAuthor)
+                    {
+                        whyRecommended = "Preporučeno jer često čitate knjige istih ili sličnih autora.";
+                    }
+                    else if (matchedUserCategory)
+                    {
+                        whyRecommended = "Preporučeno jer ste kupili knjige iz iste kategorije.";
+                    }
+                    else
+                    {
+                        whyRecommended = "Preporučeno na osnovu sličnosti sa knjigama koje čitate.";
+                    }
 
                     return new
                     {
@@ -278,12 +356,14 @@ namespace eKnjiga.Services
                             Rating = b.Rating,
                             RatingCount = b.RatingCount,
                             CoverImage = b.CoverImage,
-                            Authors = b.Authors
+                            Authors = b.Authors,
+                            WhyRecommended = whyRecommended
                         },
                         Score = score,
                         CreatedAt = b.CreatedAt
                     };
                 })
+                .Where(x => x.Score > 0)
                 .OrderByDescending(x => x.Score)
                 .ThenByDescending(x => x.CreatedAt)
                 .Take(count)
@@ -299,9 +379,18 @@ namespace eKnjiga.Services
             int k = 25,
             int? categoryId = null)
         {
+            var ownedBookIds = await _ctx.UserBooks
+                .AsNoTracking()
+                .Where(ub => ub.UserId == userId)
+                .Select(ub => ub.BookId)
+                .Distinct()
+                .ToListAsync();
+
+            var ownedBookSet = ownedBookIds.ToHashSet();
+
             var targetRatingsList = await _ctx.Reviews
                 .AsNoTracking()
-                .Where(r => r.UserId == userId)
+                .Where(r => r.UserId == userId && ownedBookSet.Contains(r.BookId))
                 .Select(r => new { r.BookId, r.Rating })
                 .ToListAsync();
 
@@ -312,6 +401,7 @@ namespace eKnjiga.Services
             var targetBookIds = targetRatings.Keys.ToHashSet();
 
             var normU = Math.Sqrt(targetRatings.Values.Sum(v => v * v));
+
             if (normU == 0)
                 return new List<BookListResponse>();
 
@@ -347,6 +437,7 @@ namespace eKnjiga.Services
                     var v = kv.Key;
                     var denom = normU * Math.Sqrt(normV2[v]);
                     var sim = denom == 0 ? 0 : kv.Value / denom;
+
                     return new { UserId = v, Sim = sim };
                 })
                 .Where(x => x.Sim > 0)
@@ -365,7 +456,7 @@ namespace eKnjiga.Services
                 .Where(r =>
                     neighborIds.Contains(r.UserId) &&
                     !targetBookIds.Contains(r.BookId) &&
-                    !_ctx.UserBooks.Any(ub => ub.UserId == userId && ub.BookId == r.BookId));
+                    !ownedBookSet.Contains(r.BookId));
 
             if (categoryId.HasValue)
             {
@@ -403,6 +494,7 @@ namespace eKnjiga.Services
                     var bookId = kv.Key;
                     var d = den[bookId];
                     var score = d == 0 ? 0 : kv.Value / d;
+
                     return new { BookId = bookId, Score = score };
                 })
                 .Where(x => x.Score > 0)
@@ -446,7 +538,8 @@ namespace eKnjiga.Services
                         Rating = b.Rating,
                         RatingCount = b.RatingCount,
                         CoverImage = b.CoverImage,
-                        Authors = b.Authors
+                        Authors = b.Authors,
+                        WhyRecommended = "Preporučeno jer su korisnici sa sličnim ocjenama preporučili ovu knjigu."
                     },
                     Score = scoreByBook.GetValueOrDefault(b.Id, 0),
                     CreatedAt = b.CreatedAt

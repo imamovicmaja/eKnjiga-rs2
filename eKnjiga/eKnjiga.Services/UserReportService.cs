@@ -3,6 +3,7 @@ using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services.Database;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
@@ -47,10 +48,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private PublicUserResponse? MapToPublicUserResponse(Database.User? user)
@@ -130,7 +131,6 @@ namespace eKnjiga.Services
                     Status = search.Status,
                     UserReportedId = search.UserReportedId,
                     IncludeTotalCount = search.IncludeTotalCount,
-                    RetrieveAll = search.RetrieveAll,
                     Page = search.Page,
                     PageSize = search.PageSize
                 };
@@ -138,18 +138,22 @@ namespace eKnjiga.Services
                 query = ApplyFilter(query, safeSearch);
             }
 
+            query = query.OrderByDescending(r => r.CreatedAt)
+             .ThenBy(r => r.Id);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
-                totalCount = await query.CountAsync();
-
-            if (!search.RetrieveAll)
             {
-                if (search.Page.HasValue)
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-
-                if (search.PageSize.HasValue)
-                    query = query.Take(search.PageSize.Value);
+                totalCount = await query.CountAsync();
             }
+
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 
@@ -210,61 +214,63 @@ namespace eKnjiga.Services
             };
         }
 
-        protected override async Task BeforeInsert(UserReport entity, UserReportUpsertRequest request)
+        public async Task<UserReportResponse> CreateReportAsync(CreateUserReportRequest request)
         {
             EnsureUserAuthenticated();
 
-            if (!IsAdmin())
+            var currentUserId = GetCurrentUserId()!.Value;
+
+            if (currentUserId == request.UserReportedId)
+                throw new InvalidOperationException("Ne možete prijaviti sami sebe.");
+
+            var reportedUserExists = await _context.Users
+                .AnyAsync(u => u.Id == request.UserReportedId);
+
+            if (!reportedUserExists)
+                throw new InvalidOperationException("Prijavljeni korisnik ne postoji.");
+
+            var report = new UserReport
             {
-                var currentUserId = GetCurrentUserId()!.Value;
+                Reason = request.Reason,
+                Status = UserReportStatus.Pending,
+                UserReportedId = request.UserReportedId,
+                ReportedByUserId = currentUserId,
+                ProcessedByUserId = null,
+                ProcessedAt = null,
+                CreatedAt = DateTime.UtcNow
+            };
 
-                request.ReportedByUserId = currentUserId;
-                entity.ReportedByUserId = currentUserId;
+            _context.UserReports.Add(report);
+            await _context.SaveChangesAsync();
 
-                request.ProcessedByUserId = null;
-                entity.ProcessedByUserId = null;
-
-                if (request.Status != UserReportStatus.Pending)
-                    request.Status = UserReportStatus.Pending;
-
-                entity.Status = request.Status;
-                entity.ProcessedAt = null;
-            }
-
-            await Task.CompletedTask;
+            return await GetByIdAsync(report.Id)
+                ?? throw new InvalidOperationException("Kreiranje prijave nije uspjelo.");
         }
 
-        protected override async Task BeforeUpdate(UserReport entity, UserReportUpsertRequest request)
+        public async Task<UserReportResponse?> ProcessReportAsync(int id, ProcessUserReportRequest request)
         {
             EnsureUserAuthenticated();
 
             if (!IsAdmin())
-                throw new UnauthorizedAccessException("Only admin can process user reports.");
+                throw new UnauthorizedAccessException("Samo administrator može obrađivati prijave.");
 
-            entity.Reason = request.Reason;
+            var report = await _context.UserReports.FindAsync(id);
 
-            bool isClosingStatus =
-                request.Status == UserReportStatus.Resolved ||
-                request.Status == UserReportStatus.Dismissed;
+            if (report == null)
+                return null;
 
-            if (isClosingStatus && entity.Status != request.Status)
+            report.Status = request.Status;
+
+            if (request.Status == UserReportStatus.Resolved ||
+                request.Status == UserReportStatus.Dismissed)
             {
-                entity.Status = request.Status;
-
-                if (entity.ProcessedAt == null)
-                    entity.ProcessedAt = DateTime.UtcNow;
-
-                if (entity.ProcessedByUserId == null)
-                {
-                    var currentUserId = GetCurrentUserId();
-                    if (currentUserId.HasValue)
-                        entity.ProcessedByUserId = currentUserId.Value;
-                }
+                report.ProcessedAt = DateTime.UtcNow;
+                report.ProcessedByUserId = GetCurrentUserId();
             }
-            else
-            {
-                entity.Status = request.Status;
-            }
+
+            await _context.SaveChangesAsync();
+
+            return await GetByIdAsync(report.Id);
         }
     }
 }

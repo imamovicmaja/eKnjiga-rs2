@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../FORUM/forum_page.dart';
 import '../KNJIGE/books_page.dart';
@@ -45,17 +47,72 @@ class _ReportsPageState extends State<ReportsPage> {
     _loadOrders();
   }
 
+  Future<List<OrderResponse>> _fetchAllOrdersPaged() async {
+    const pageSize = 50;
+    var page = 1;
+    final all = <OrderResponse>[];
+
+    while (true) {
+      final fetched = await ApiService.fetchOrders(
+        page: page,
+        pageSize: pageSize,
+        includeTotalCount: false,
+      );
+
+      all.addAll(fetched);
+
+      if (fetched.length < pageSize) {
+        break;
+      }
+
+      page++;
+    }
+
+    return all;
+  }
+
   Future<void> _loadOrders() async {
     try {
       setState(() => _isLoading = true);
 
-      final fetched = await ApiService.fetchOrders();
+      final dateFrom = _dateRange?.start;
+      final dateTo =
+          _dateRange == null
+              ? null
+              : DateTime(
+                _dateRange!.end.year,
+                _dateRange!.end.month,
+                _dateRange!.end.day,
+                23,
+                59,
+                59,
+              );
+
+      final report = await ApiService.fetchOrderReport(
+        dateFrom: dateFrom,
+        dateTo: dateTo,
+      );
+
+      final fetchedOrders = await _fetchAllOrdersPaged();
+
+      if (!mounted) return;
 
       setState(() {
-        _allOrders = fetched;
-      });
+        _totalOrders = report.totalOrders;
+        _completedOrders = report.completedOrders;
+        _cancelledOrders = report.cancelledOrders;
+        _paidOrders = report.paidOrders;
+        _purchaseOrders = report.purchaseOrders;
+        _reservationOrders = report.reservationOrders;
+        _pdfPurchases = report.pdfPurchases;
+        _hardcopyPurchases = report.hardcopyPurchases;
+        _totalRevenue = report.totalRevenue;
 
-      _applyFiltersAndCalculate();
+        _allOrders = fetchedOrders;
+        _filteredOrders = _filterOrdersByDate(fetchedOrders);
+        _archiveOrders =
+            _filteredOrders.where((o) => o.orderStatus == 2).length;
+      });
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,6 +123,30 @@ class _ReportsPageState extends State<ReportsPage> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  List<OrderResponse> _filterOrdersByDate(List<OrderResponse> orders) {
+    if (_dateRange == null) return orders;
+
+    final start = DateTime(
+      _dateRange!.start.year,
+      _dateRange!.start.month,
+      _dateRange!.start.day,
+    );
+
+    final end = DateTime(
+      _dateRange!.end.year,
+      _dateRange!.end.month,
+      _dateRange!.end.day,
+      23,
+      59,
+      59,
+    );
+
+    return orders.where((order) {
+      final date = order.orderDate;
+      return !date.isBefore(start) && !date.isAfter(end);
+    }).toList();
   }
 
   Future<void> _selectDateRange(BuildContext context) async {
@@ -91,10 +172,7 @@ class _ReportsPageState extends State<ReportsPage> {
           ),
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(
-                maxWidth: 420,
-                maxHeight: 650,
-              ),
+              constraints: const BoxConstraints(maxWidth: 420, maxHeight: 650),
               child: child!,
             ),
           ),
@@ -103,90 +181,14 @@ class _ReportsPageState extends State<ReportsPage> {
     );
 
     if (picked != null) {
-      setState(() {
-        _dateRange = picked;
-      });
-      _applyFiltersAndCalculate();
+      setState(() => _dateRange = picked);
+      await _loadOrders();
     }
   }
 
-  void _clearDateRange() {
-    setState(() {
-      _dateRange = null;
-    });
-    _applyFiltersAndCalculate();
-  }
-
-  void _applyFiltersAndCalculate() {
-    final filtered = _allOrders.where((order) {
-      final date = order.orderDate;
-
-      if (_dateRange == null) return true;
-
-      final start = DateTime(
-        _dateRange!.start.year,
-        _dateRange!.start.month,
-        _dateRange!.start.day,
-      );
-
-      final end = DateTime(
-        _dateRange!.end.year,
-        _dateRange!.end.month,
-        _dateRange!.end.day,
-        23,
-        59,
-        59,
-      );
-
-      return !date.isBefore(start) && !date.isAfter(end);
-    }).toList();
-
-    int completed = 0;
-    int cancelled = 0;
-    int paid = 0;
-    int reservations = 0;
-    int purchases = 0;
-    int archives = 0;
-    int pdfCount = 0;
-    int hardcopyCount = 0;
-    double revenue = 0;
-
-    for (final order in filtered) {
-      if (order.orderStatus == 2) completed++;
-      if (order.orderStatus == 3) cancelled++;
-
-      if (order.paymentStatus == 2) paid++;
-
-      if (order.type == 0) purchases++;
-      if (order.type == 1) reservations++;
-      if (order.type == 2) archives++;
-
-      if (order.paymentStatus == 2) {
-        revenue += order.totalPrice;
-      }
-
-      for (final item in order.orderItems) {
-        if (item.isPdfPurchase) {
-          pdfCount += item.quantity;
-        } else {
-          hardcopyCount += item.quantity;
-        }
-      }
-    }
-
-    setState(() {
-      _filteredOrders = filtered;
-      _totalOrders = filtered.length;
-      _completedOrders = completed;
-      _cancelledOrders = cancelled;
-      _paidOrders = paid;
-      _reservationOrders = reservations;
-      _purchaseOrders = purchases;
-      _archiveOrders = archives;
-      _pdfPurchases = pdfCount;
-      _hardcopyPurchases = hardcopyCount;
-      _totalRevenue = revenue;
-    });
+  Future<void> _clearDateRange() async {
+    setState(() => _dateRange = null);
+    await _loadOrders();
   }
 
   String _formatDate(DateTime? value) {
@@ -198,12 +200,262 @@ class _ReportsPageState extends State<ReportsPage> {
     return DateFormat('dd.MM.yyyy').format(value);
   }
 
-  Future<void> _generateReport() async {
+  String get _periodPdfText {
+    if (_dateRange == null) return '-';
+    return '${_formatShortDate(_dateRange!.start)} - ${_formatShortDate(_dateRange!.end)}';
+  }
+
+  Future<Uint8List> _buildBusinessReportPdf() async {
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build:
+            (pw.Context context) => [
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  'Poslovni izvještaj eKnjiga',
+                  style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.Text('Period: $_periodPdfText'),
+              pw.SizedBox(height: 20),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey400),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(6),
+                  ),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Sažetak',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Bullet(text: 'Broj svih narudžbi: $_totalOrders'),
+                    pw.Bullet(
+                      text: 'Broj završenih narudžbi: $_completedOrders',
+                    ),
+                    pw.Bullet(
+                      text: 'Broj otkazanih narudžbi: $_cancelledOrders',
+                    ),
+                    pw.Bullet(text: 'Broj plaćenih narudžbi: $_paidOrders'),
+                    pw.Bullet(text: 'Broj kupovina: $_purchaseOrders'),
+                    pw.Bullet(text: 'Broj rezervacija: $_reservationOrders'),
+                    pw.Bullet(text: 'Broj PDF kupovina: $_pdfPurchases'),
+                    pw.Bullet(
+                      text: 'Broj fizičkih kupovina: $_hardcopyPurchases',
+                    ),
+                    pw.Bullet(
+                      text:
+                          'Ukupan prihod: ${_totalRevenue.toStringAsFixed(2)} KM',
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Pregled narudžbi u periodu',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              if (_filteredOrders.isEmpty)
+                pw.Text('Nema narudžbi za odabrani period.')
+              else
+                pw.TableHelper.fromTextArray(
+                  headerStyle: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                  ),
+                  headerDecoration: const pw.BoxDecoration(
+                    color: PdfColors.grey800,
+                  ),
+                  cellStyle: const pw.TextStyle(fontSize: 10),
+                  headers: const [
+                    'ID',
+                    'Datum',
+                    'Tip',
+                    'Status',
+                    'Plaćanje',
+                    'Iznos (KM)',
+                  ],
+                  data:
+                      _filteredOrders.map<List<Object>>((order) {
+                        return [
+                          order.id.toString(),
+                          _formatDate(order.orderDate),
+                          orderTypeText(order.type),
+                          orderStatusText(order.orderStatus),
+                          paymentStatusText(order.paymentStatus),
+                          order.totalPrice.toStringAsFixed(2),
+                        ];
+                      }).toList(),
+                ),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'Generisano: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  fontStyle: pw.FontStyle.italic,
+                  color: PdfColors.grey700,
+                ),
+              ),
+            ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<Uint8List> _buildReservationsReportPdf() async {
+    final reservations = _filteredOrders.where((o) => o.type == 1).toList();
+
+    final completed = reservations.where((o) => o.orderStatus == 2).length;
+    final cancelled = reservations.where((o) => o.orderStatus == 3).length;
+
+    final totalItems = reservations.fold<int>(
+      0,
+      (sum, order) =>
+          sum +
+          order.orderItems.fold<int>(
+            0,
+            (itemSum, item) => itemSum + item.quantity,
+          ),
+    );
+
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        build:
+            (pw.Context context) => [
+              pw.Header(
+                level: 0,
+                child: pw.Text(
+                  'Izvještaj o rezervacijama',
+                  style: pw.TextStyle(
+                    fontSize: 24,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
+                ),
+              ),
+              pw.Text('Period: $_periodPdfText'),
+              pw.SizedBox(height: 20),
+              pw.Container(
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  border: pw.Border.all(color: PdfColors.grey400),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(6),
+                  ),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Sažetak rezervacija',
+                      style: pw.TextStyle(
+                        fontSize: 16,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                    pw.SizedBox(height: 10),
+                    pw.Bullet(
+                      text: 'Ukupan broj rezervacija: ${reservations.length}',
+                    ),
+                    pw.Bullet(text: 'Završene rezervacije: $completed'),
+                    pw.Bullet(text: 'Otkazane rezervacije: $cancelled'),
+                    pw.Bullet(
+                      text: 'Ukupan broj rezervisanih knjiga: $totalItems',
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Pregled rezervacija u periodu',
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              if (reservations.isEmpty)
+                pw.Text('Nema rezervacija za odabrani period.')
+              else
+                pw.TableHelper.fromTextArray(
+                  headerStyle: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                  ),
+                  headerDecoration: const pw.BoxDecoration(
+                    color: PdfColors.grey800,
+                  ),
+                  cellStyle: const pw.TextStyle(fontSize: 10),
+                  headers: const [
+                    'ID',
+                    'Datum',
+                    'Status',
+                    'Plaćanje',
+                    'Broj knjiga',
+                    'Iznos (KM)',
+                  ],
+                  data:
+                      reservations.map<List<Object>>((order) {
+                        final itemCount = order.orderItems.fold<int>(
+                          0,
+                          (sum, item) => sum + item.quantity,
+                        );
+
+                        return [
+                          order.id.toString(),
+                          _formatDate(order.orderDate),
+                          orderStatusText(order.orderStatus),
+                          paymentStatusText(order.paymentStatus),
+                          itemCount.toString(),
+                          order.totalPrice.toStringAsFixed(2),
+                        ];
+                      }).toList(),
+                ),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                'Generisano: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  fontStyle: pw.FontStyle.italic,
+                  color: PdfColors.grey700,
+                ),
+              ),
+            ],
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<void> _savePdf({
+    required String fileNamePrefix,
+    required Future<Uint8List> Function() builder,
+  }) async {
     if (_dateRange == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Molimo odaberite period za izvještaj.'),
-        ),
+        const SnackBar(content: Text('Molimo odaberite period za izvještaj.')),
       );
       return;
     }
@@ -211,112 +463,7 @@ class _ReportsPageState extends State<ReportsPage> {
     try {
       setState(() => _isLoading = true);
 
-      final pdf = pw.Document();
-
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: PdfPageFormat.a4,
-          build: (pw.Context context) => [
-            pw.Header(
-              level: 0,
-              child: pw.Text(
-                'Poslovni izvještaj eKnjiga',
-                style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-            ),
-            pw.SizedBox(height: 8),
-            pw.Text(
-              'Period: ${_formatShortDate(_dateRange!.start)} - ${_formatShortDate(_dateRange!.end)}',
-              style: const pw.TextStyle(fontSize: 13),
-            ),
-            pw.SizedBox(height: 20),
-            pw.Container(
-              padding: const pw.EdgeInsets.all(12),
-              decoration: pw.BoxDecoration(
-                border: pw.Border.all(color: PdfColors.grey400),
-                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(6)),
-              ),
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    'Sažetak',
-                    style: pw.TextStyle(
-                      fontSize: 16,
-                      fontWeight: pw.FontWeight.bold,
-                    ),
-                  ),
-                  pw.SizedBox(height: 10),
-                  pw.Bullet(text: 'Broj svih narudžbi: $_totalOrders'),
-                  pw.Bullet(text: 'Broj završenih narudžbi: $_completedOrders'),
-                  pw.Bullet(text: 'Broj otkazanih narudžbi: $_cancelledOrders'),
-                  pw.Bullet(text: 'Broj plaćenih narudžbi: $_paidOrders'),
-                  pw.Bullet(text: 'Broj kupovina: $_purchaseOrders'),
-                  pw.Bullet(text: 'Broj rezervacija: $_reservationOrders'),
-                  pw.Bullet(text: 'Broj arhiviranih: $_archiveOrders'),
-                  pw.Bullet(text: 'Broj PDF kupovina: $_pdfPurchases'),
-                  pw.Bullet(text: 'Broj fizičkih kupovina: $_hardcopyPurchases'),
-                  pw.Bullet(
-                    text: 'Ukupan prihod: ${_totalRevenue.toStringAsFixed(2)} KM',
-                  ),
-                ],
-              ),
-            ),
-            pw.SizedBox(height: 20),
-            pw.Text(
-              'Pregled narudžbi u periodu',
-              style: pw.TextStyle(
-                fontSize: 16,
-                fontWeight: pw.FontWeight.bold,
-              ),
-            ),
-            pw.SizedBox(height: 10),
-            if (_filteredOrders.isEmpty)
-              pw.Text('Nema narudžbi za odabrani period.')
-            else
-              pw.TableHelper.fromTextArray(
-                headerStyle: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.white,
-                ),
-                headerDecoration: const pw.BoxDecoration(
-                  color: PdfColors.grey800,
-                ),
-                cellStyle: const pw.TextStyle(fontSize: 10),
-                headers: const [
-                  'ID',
-                  'Datum',
-                  'Tip',
-                  'Status',
-                  'Plaćanje',
-                  'Iznos (KM)',
-                ],
-                data: _filteredOrders.map<List<dynamic>>((order) {
-                  return [
-                    order.id.toString(),
-                    _formatDate(order.orderDate),
-                    orderTypeText(order.type),
-                    orderStatusText(order.orderStatus),
-                    paymentStatusText(order.paymentStatus),
-                    order.totalPrice.toStringAsFixed(2),
-                  ];
-                }).toList(),
-              ),
-            pw.SizedBox(height: 24),
-            pw.Text(
-              'Generisano: ${DateFormat('dd.MM.yyyy HH:mm').format(DateTime.now())}',
-              style: pw.TextStyle(
-                fontSize: 10,
-                fontStyle: pw.FontStyle.italic,
-                color: PdfColors.grey700,
-              ),
-            ),
-          ],
-        ),
-      );
+      final bytes = await builder();
 
       final directory = await getDownloadsDirectory();
       if (directory == null) {
@@ -324,30 +471,51 @@ class _ReportsPageState extends State<ReportsPage> {
       }
 
       final filename =
-          'eknjiga_izvjestaj_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final file = File('${directory.path}/$filename');
+          '${fileNamePrefix}_${DateTime.now().millisecondsSinceEpoch}.pdf';
 
-      await file.writeAsBytes(await pdf.save());
+      final file = File('${directory.path}/$filename');
+      await file.writeAsBytes(bytes);
 
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('PDF izvještaj sačuvan: ${file.path}'),
+          content: Text('PDF izvještaj je sačuvan: ${file.path}'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Greška pri generisanju izvještaja: $e'),
+          content: Text('Greška pri generisanju PDF izvještaja: $e'),
           backgroundColor: Colors.red,
         ),
       );
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _printPdf({
+    required Future<Uint8List> Function() builder,
+  }) async {
+    if (_dateRange == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Molimo odaberite period za izvještaj.')),
+      );
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+
+      final bytes = await builder();
+
+      await Printing.layoutPdf(onLayout: (_) async => bytes);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -577,9 +745,10 @@ class _ReportsPageState extends State<ReportsPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: isActive
-                ? const Color.fromARGB(255, 181, 156, 74)
-                : Colors.transparent,
+            color:
+                isActive
+                    ? const Color.fromARGB(255, 181, 156, 74)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -595,11 +764,32 @@ class _ReportsPageState extends State<ReportsPage> {
     );
   }
 
+  Widget _reportButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    bool primary = false,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor:
+            primary ? const Color.fromARGB(255, 181, 156, 74) : Colors.white,
+        foregroundColor: primary ? Colors.white : Colors.black87,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final periodText = _dateRange == null
-        ? 'Nije odabran period'
-        : '${DateFormat('dd.MM.yyyy').format(_dateRange!.start)} - ${DateFormat('dd.MM.yyyy').format(_dateRange!.end)}';
+    final periodText =
+        _dateRange == null
+            ? 'Nije odabran period'
+            : '${DateFormat('dd.MM.yyyy').format(_dateRange!.start)} - ${DateFormat('dd.MM.yyyy').format(_dateRange!.end)}';
 
     return Scaffold(
       body: Stack(
@@ -649,7 +839,11 @@ class _ReportsPageState extends State<ReportsPage> {
                       ],
                     ),
                     TextButton(
-                      onPressed: () {
+                      onPressed: () async {
+                        await ApiService.logout();
+
+                        if (!context.mounted) return;
+
                         Navigator.pushAndRemoveUntil(
                           context,
                           MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -657,7 +851,12 @@ class _ReportsPageState extends State<ReportsPage> {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(255, 181, 156, 74),
+                        backgroundColor: const Color.fromARGB(
+                          255,
+                          181,
+                          156,
+                          74,
+                        ),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
@@ -698,69 +897,71 @@ class _ReportsPageState extends State<ReportsPage> {
                               spacing: 10,
                               runSpacing: 10,
                               children: [
-                                ElevatedButton.icon(
+                                _reportButton(
+                                  icon: Icons.date_range,
+                                  label: 'Odaberi period',
                                   onPressed: () => _selectDateRange(context),
-                                  icon: const Icon(Icons.date_range),
-                                  label: const Text('Odaberi period'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black87,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 14,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
                                 ),
-                                ElevatedButton.icon(
-                                  onPressed: _dateRange == null ? null : _clearDateRange,
-                                  icon: const Icon(Icons.clear),
-                                  label: const Text('Očisti'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black87,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 14,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
+                                _reportButton(
+                                  icon: Icons.clear,
+                                  label: 'Očisti',
+                                  onPressed:
+                                      _dateRange == null
+                                          ? null
+                                          : _clearDateRange,
                                 ),
-                                ElevatedButton.icon(
-                                  onPressed: _isLoading ? null : _generateReport,
-                                  icon: const Icon(Icons.picture_as_pdf),
-                                  label: const Text('Export PDF'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color.fromARGB(255, 181, 156, 74),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 14,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
+                                _reportButton(
+                                  icon: Icons.picture_as_pdf,
+                                  label: 'PDF poslovni',
+                                  primary: true,
+                                  onPressed:
+                                      _isLoading
+                                          ? null
+                                          : () => _savePdf(
+                                            fileNamePrefix:
+                                                'eknjiga_poslovni_izvjestaj',
+                                            builder: _buildBusinessReportPdf,
+                                          ),
                                 ),
-                                ElevatedButton.icon(
+                                _reportButton(
+                                  icon: Icons.print,
+                                  label: 'Print poslovni',
+                                  onPressed:
+                                      _isLoading
+                                          ? null
+                                          : () => _printPdf(
+                                            builder: _buildBusinessReportPdf,
+                                          ),
+                                ),
+                                _reportButton(
+                                  icon: Icons.picture_as_pdf,
+                                  label: 'PDF rezervacije',
+                                  primary: true,
+                                  onPressed:
+                                      _isLoading
+                                          ? null
+                                          : () => _savePdf(
+                                            fileNamePrefix:
+                                                'eknjiga_rezervacije_izvjestaj',
+                                            builder:
+                                                _buildReservationsReportPdf,
+                                          ),
+                                ),
+                                _reportButton(
+                                  icon: Icons.print,
+                                  label: 'Print rezervacije',
+                                  onPressed:
+                                      _isLoading
+                                          ? null
+                                          : () => _printPdf(
+                                            builder:
+                                                _buildReservationsReportPdf,
+                                          ),
+                                ),
+                                _reportButton(
+                                  icon: Icons.refresh,
+                                  label: 'Osvježi',
                                   onPressed: _isLoading ? null : _loadOrders,
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text('Osvježi'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black87,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 14,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
                                 ),
                               ],
                             ),
@@ -768,7 +969,8 @@ class _ReportsPageState extends State<ReportsPage> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      if (_isLoading) const LinearProgressIndicator(minHeight: 3),
+                      if (_isLoading)
+                        const LinearProgressIndicator(minHeight: 3),
                       const SizedBox(height: 12),
                       _buildStatsGrid(),
                       const SizedBox(height: 18),

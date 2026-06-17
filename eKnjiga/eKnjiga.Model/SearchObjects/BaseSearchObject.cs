@@ -1,14 +1,21 @@
 using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace eKnjiga.Model.SearchObjects
 {
     public class BaseSearchObject
     {
-        public int? Page { get; set; } = 0;
-        public int? PageSize { get; set; } = 100;
+        private const int MaxPageSize = 50;
+
+        public int Page { get; set; } = 1;
+
+        private int _pageSize = 10;
+
+        public int PageSize
+        {
+            get => _pageSize;
+            set => _pageSize = value <= 0 ? 10 : Math.Min(value, MaxPageSize);
+        }
+
         public bool IncludeTotalCount { get; set; } = false;
-        public bool RetrieveAll { get; set; } = false;
     }
-} 
+}

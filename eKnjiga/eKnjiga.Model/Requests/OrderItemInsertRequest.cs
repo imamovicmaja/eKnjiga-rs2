@@ -7,11 +7,8 @@ namespace eKnjiga.Model.Requests
         [Required]
         public int BookId { get; set; }
 
-        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "Količina mora biti najmanje 1.")]
         public int Quantity { get; set; }
-
-        [Required]
-        public decimal UnitPrice { get; set; }
 
         [Required]
         public bool IsPdfPurchase { get; set; }

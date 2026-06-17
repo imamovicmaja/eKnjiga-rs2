@@ -50,8 +50,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 2,
-                OrderDate = DateTime.Now.AddDays(-3),
-                CreatedAt = DateTime.Now.AddDays(-3),
+                OrderDate = DateTime.UtcNow.AddDays(-3),
+                CreatedAt = DateTime.UtcNow.AddDays(-3),
                 TotalPrice = 29.99m,
                 OrderStatus = OrderStatus.Completed,
                 PaymentStatus = PaymentStatus.Paid,
@@ -71,8 +71,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 2,
-                OrderDate = DateTime.Now.AddDays(-1),
-                CreatedAt = DateTime.Now.AddDays(-1),
+                OrderDate = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
                 TotalPrice = 19.99m,
                 OrderStatus = OrderStatus.Pending,
                 PaymentStatus = PaymentStatus.Pending,
@@ -92,8 +92,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 2,
-                OrderDate = DateTime.Now.AddDays(-2),
-                CreatedAt = DateTime.Now.AddDays(-2),
+                OrderDate = DateTime.UtcNow.AddDays(-2),
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
                 TotalPrice = 39.99m,
                 OrderStatus = OrderStatus.Processing,
                 PaymentStatus = PaymentStatus.Pending,
@@ -113,8 +113,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 2,
-                OrderDate = DateTime.Now.AddDays(-5),
-                CreatedAt = DateTime.Now.AddDays(-5),
+                OrderDate = DateTime.UtcNow.AddDays(-5),
+                CreatedAt = DateTime.UtcNow.AddDays(-5),
                 TotalPrice = 15.99m,
                 OrderStatus = OrderStatus.Cancelled,
                 PaymentStatus = PaymentStatus.Pending,
@@ -134,8 +134,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 3,
-                OrderDate = DateTime.Now.AddDays(-4),
-                CreatedAt = DateTime.Now.AddDays(-4),
+                OrderDate = DateTime.UtcNow.AddDays(-4),
+                CreatedAt = DateTime.UtcNow.AddDays(-4),
                 TotalPrice = 24.99m,
                 OrderStatus = OrderStatus.Completed,
                 PaymentStatus = PaymentStatus.Paid,
@@ -155,8 +155,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 3,
-                OrderDate = DateTime.Now.AddDays(-2),
-                CreatedAt = DateTime.Now.AddDays(-2),
+                OrderDate = DateTime.UtcNow.AddDays(-2),
+                CreatedAt = DateTime.UtcNow.AddDays(-2),
                 TotalPrice = 34.99m,
                 OrderStatus = OrderStatus.Processing,
                 PaymentStatus = PaymentStatus.Pending,
@@ -176,8 +176,8 @@ namespace eKnjiga.Services.Database.seedAssets
             new Order
             {
                 UserId = 3,
-                OrderDate = DateTime.Now.AddDays(-1),
-                CreatedAt = DateTime.Now.AddDays(-1),
+                OrderDate = DateTime.UtcNow.AddDays(-1),
+                CreatedAt = DateTime.UtcNow.AddDays(-1),
                 TotalPrice = 14.99m,
                 OrderStatus = OrderStatus.Pending,
                 PaymentStatus = PaymentStatus.Pending,

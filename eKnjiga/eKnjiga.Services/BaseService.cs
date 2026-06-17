@@ -24,29 +24,31 @@ namespace eKnjiga.Services
 
         public virtual async Task<PagedResult<T>> GetAsync(TSearch search)
         {
+            search ??= Activator.CreateInstance<TSearch>();
+
             var query = _context.Set<TEntity>().AsQueryable();
+
             query = ApplyFilter(query, search);
+            query = ApplyOrder(query);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
 
             int? totalCount = null;
-            if (search.IncludeTotalCount){
+
+            if (search.IncludeTotalCount)
+            {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
+
             return new PagedResult<T>
-            {   
+            {
                 Items = list.Select(MapToResponse).ToList(),
                 TotalCount = totalCount
             };
@@ -55,6 +57,18 @@ namespace eKnjiga.Services
         protected virtual IQueryable<TEntity> ApplyFilter(IQueryable<TEntity> query, TSearch search)
         {
             return query;
+        }
+
+        protected virtual IQueryable<TEntity> ApplyOrder(IQueryable<TEntity> query)
+        {
+            var idProperty = typeof(TEntity).GetProperty("Id");
+
+            if (idProperty == null)
+            {
+                return query;
+            }
+
+            return query.OrderByDescending(e => EF.Property<int>(e, "Id"));
         }
 
         public virtual async Task<T?> GetByIdAsync(int id)

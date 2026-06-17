@@ -10,6 +10,7 @@ namespace eKnjiga.Model.Responses
         public double Rating { get; set; }
         public int RatingCount { get; set; }
         public string? CoverImage { get; set; }
+        public string? WhyRecommended { get; set; }
 
         public List<AuthorResponse> Authors { get; set; } = new();
     }

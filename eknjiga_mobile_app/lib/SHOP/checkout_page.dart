@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_custom_tabs/flutter_custom_tabs.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/confirm_dialog.dart';
 import '../models/cart_item.dart';
 import '../models/book.dart';
 import '../services/api_service.dart';
@@ -14,20 +15,18 @@ class CheckoutPage extends StatefulWidget {
   final Book? book;
   final bool? isPdfPurchase;
 
-  const CheckoutPage.fromCart({
-    super.key,
-    required List<CartItem> items,
-  })  : items = items,
-        book = null,
-        isPdfPurchase = null;
+  const CheckoutPage.fromCart({super.key, required List<CartItem> items})
+    : items = items,
+      book = null,
+      isPdfPurchase = null;
 
   const CheckoutPage.fromBook({
     super.key,
     required Book book,
     required bool isPdfPurchase,
-  })  : items = null,
-        book = book,
-        isPdfPurchase = isPdfPurchase;
+  }) : items = null,
+       book = book,
+       isPdfPurchase = isPdfPurchase;
 
   @override
   State<CheckoutPage> createState() => _CheckoutPageState();
@@ -44,14 +43,18 @@ class _CheckoutPageState extends State<CheckoutPage> {
   final _appLinks = AppLinks();
   StreamSubscription<Uri>? _linkSub;
 
+  static const String _pendingPaypalOrderIdKey = 'pending_paypal_order_id';
+
   String? _pendingPaypalOrderId;
   List<_CheckoutItem> _pendingItemsSnapshot = [];
+  bool _handlingPayPalDeepLink = false;
 
   @override
   void initState() {
     super.initState();
 
-    final List<CartItem> sourceItems = widget.items ??
+    final List<CartItem> sourceItems =
+        widget.items ??
         [
           CartItem(
             bookId: widget.book!.id,
@@ -82,62 +85,113 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
     _items = temp;
 
-    _linkSub = _appLinks.uriLinkStream.listen((uri) async {
-      final url = uri.toString();
+    _initializePayPalDeepLinks();
+  }
 
-      final isReturn = url.startsWith(ApiService.paypalReturnUrlPrefix);
-      final isCancel = url.startsWith(ApiService.paypalCancelUrlPrefix);
-      if (!isReturn && !isCancel) return;
-      if (_pendingPaypalOrderId == null) return;
+  Future<void> _initializePayPalDeepLinks() async {
+    _linkSub = _appLinks.uriLinkStream.listen(
+      _handlePayPalDeepLink,
+      onError: (_) {},
+    );
 
-      if (isCancel) {
-        _pendingPaypalOrderId = null;
-        _pendingItemsSnapshot = [];
-        if (!mounted) return;
-        setState(() => busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Plaćanje je otkazano.')),
-        );
-        return;
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        await _handlePayPalDeepLink(initialUri);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePendingPaypalOrder(String paypalOrderId) async {
+    _pendingPaypalOrderId = paypalOrderId;
+
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_pendingPaypalOrderIdKey, paypalOrderId);
+  }
+
+  Future<String?> _loadPendingPaypalOrderId() async {
+    if (_pendingPaypalOrderId != null) {
+      return _pendingPaypalOrderId;
+    }
+
+    final sp = await SharedPreferences.getInstance();
+    _pendingPaypalOrderId = sp.getString(_pendingPaypalOrderIdKey);
+    return _pendingPaypalOrderId;
+  }
+
+  Future<void> _clearPendingPaypalState() async {
+    _pendingPaypalOrderId = null;
+    _pendingItemsSnapshot = [];
+
+    final sp = await SharedPreferences.getInstance();
+    await sp.remove(_pendingPaypalOrderIdKey);
+  }
+
+  Future<void> _handlePayPalDeepLink(Uri uri) async {
+    final url = uri.toString();
+
+    final isReturn = url.startsWith(ApiService.paypalReturnUrlPrefix);
+    final isCancel = url.startsWith(ApiService.paypalCancelUrlPrefix);
+
+    if (!isReturn && !isCancel) return;
+    if (_handlingPayPalDeepLink) return;
+
+    final pendingPaypalOrderId = await _loadPendingPaypalOrderId();
+    if (pendingPaypalOrderId == null || pendingPaypalOrderId.isEmpty) return;
+
+    _handlingPayPalDeepLink = true;
+
+    if (mounted) {
+      setState(() => busy = true);
+    }
+
+    if (isCancel) {
+      await _clearPendingPaypalState();
+      _handlingPayPalDeepLink = false;
+
+      if (!mounted) return;
+      setState(() => busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Plaćanje je otkazano.')));
+      return;
+    }
+
+    try {
+      final token = uri.queryParameters['token'];
+      if (token == null || token.isEmpty) {
+        throw Exception('PayPal token nije pronađen.');
       }
 
-      if (isReturn) {
-        try {
-          final token = uri.queryParameters['token'];
-          if (token == null || token.isEmpty) {
-            throw Exception('PayPal token nije pronađen.');
-          }
+      await ApiService.paypalCaptureOrder(token);
 
-          await ApiService.paypalCaptureOrder(token);
-
-          if (widget.items != null) {
-            for (final checkoutItem in _pendingItemsSnapshot) {
-              Cart.I.remove(checkoutItem.item);
-            }
-          }
-
-          _pendingPaypalOrderId = null;
-          _pendingItemsSnapshot = [];
-
-          if (!mounted) return;
-          setState(() => busy = false);
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Plaćanje uspješno završeno!')),
-          );
-
-          Navigator.pop(context, true);
-        } catch (e) {
-          _pendingPaypalOrderId = null;
-          _pendingItemsSnapshot = [];
-          if (!mounted) return;
-          setState(() => busy = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('PayPal greška: $e')),
-          );
+      if (widget.items != null) {
+        for (final checkoutItem in _pendingItemsSnapshot) {
+          Cart.I.remove(checkoutItem.item);
         }
       }
-    });
+
+      await _clearPendingPaypalState();
+      _handlingPayPalDeepLink = false;
+
+      if (!mounted) return;
+      setState(() => busy = false);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Plaćanje uspješno završeno!')),
+      );
+
+      Navigator.pop(context, true);
+    } catch (e) {
+      await _clearPendingPaypalState();
+      _handlingPayPalDeepLink = false;
+
+      if (!mounted) return;
+      setState(() => busy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('PayPal greška: $e')));
+    }
   }
 
   @override
@@ -169,9 +223,9 @@ class _CheckoutPageState extends State<CheckoutPage> {
     }
 
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Korpa je prazna.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Korpa je prazna.')));
       return;
     }
 
@@ -180,18 +234,16 @@ class _CheckoutPageState extends State<CheckoutPage> {
     try {
       await ApiService.createOrder(
         type: 0,
-        totalPrice: total,
-        paymentStatus: 0,
-        orderItems: _items
-            .map(
-              (i) => {
-                "bookId": i.item.bookId,
-                "quantity": i.qty,
-                "unitPrice": i.item.price,
-                "isPdfPurchase": i.item.isPdfPurchase,
-              },
-            )
-            .toList(),
+        orderItems:
+            _items
+                .map(
+                  (i) => {
+                    "bookId": i.item.bookId,
+                    "quantity": i.qty,
+                    "isPdfPurchase": i.item.isPdfPurchase,
+                  },
+                )
+                .toList(),
       );
 
       if (widget.items != null) {
@@ -211,17 +263,17 @@ class _CheckoutPageState extends State<CheckoutPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Greška: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Greška: $e')));
     }
   }
 
   Future<void> _confirmOnlinePayment() async {
     if (_items.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Korpa je prazna.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Korpa je prazna.')));
       return;
     }
 
@@ -230,18 +282,16 @@ class _CheckoutPageState extends State<CheckoutPage> {
     try {
       final orderId = await ApiService.createOrder(
         type: 0,
-        totalPrice: total,
-        paymentStatus: 1,
-        orderItems: _items
-            .map(
-              (i) => {
-                "bookId": i.item.bookId,
-                "quantity": i.qty,
-                "unitPrice": i.item.price,
-                "isPdfPurchase": i.item.isPdfPurchase,
-              },
-            )
-            .toList(),
+        orderItems:
+            _items
+                .map(
+                  (i) => {
+                    "bookId": i.item.bookId,
+                    "quantity": i.qty,
+                    "isPdfPurchase": i.item.isPdfPurchase,
+                  },
+                )
+                .toList(),
       );
 
       final paypal = await ApiService.paypalCreateOrder(
@@ -252,7 +302,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
 
       _pendingItemsSnapshot =
           _items.map((x) => _CheckoutItem(item: x.item, qty: x.qty)).toList();
-      _pendingPaypalOrderId = paypal.id;
+      await _savePendingPaypalOrder(paypal.id);
 
       await launchUrl(
         Uri.parse(paypal.approveLink),
@@ -269,20 +319,20 @@ class _CheckoutPageState extends State<CheckoutPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => busy = false);
-      _pendingPaypalOrderId = null;
-      _pendingItemsSnapshot = [];
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Greška: $e')),
-      );
+      await _clearPendingPaypalState();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Greška: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final expiry = DateTime.now().add(const Duration(days: 7));
-    final address = _items.isNotEmpty
-        ? _items.first.item.pickupAddress
-        : 'Poslovnica eKnjiga, Zmaja od Bosne 12, Sarajevo';
+    final address =
+        _items.isNotEmpty
+            ? _items.first.item.pickupAddress
+            : 'Poslovnica eKnjiga, Zmaja od Bosne 12, Sarajevo';
 
     return Scaffold(
       backgroundColor: topColor,
@@ -310,18 +360,23 @@ class _CheckoutPageState extends State<CheckoutPage> {
             child: Column(
               children: [
                 Expanded(
-                  child: _items.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'Korpa je prazna.',
-                            style:
-                                TextStyle(fontSize: 16, color: Colors.black87),
+                  child:
+                      _items.isEmpty
+                          ? const Center(
+                            child: Text(
+                              'Korpa je prazna.',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          )
+                          : ListView(
+                            children:
+                                _items
+                                    .map((e) => _checkoutItemCard(e))
+                                    .toList(),
                           ),
-                        )
-                      : ListView(
-                          children:
-                              _items.map((e) => _checkoutItemCard(e)).toList(),
-                        ),
                 ),
                 const SizedBox(height: 12),
                 Align(
@@ -356,7 +411,22 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: busy ? null : _confirmOnlinePayment,
+                    onPressed:
+                        busy
+                            ? null
+                            : () async {
+                              final confirmed = await showAppConfirmDialog(
+                                context: context,
+                                title: 'Potvrda plaćanja',
+                                message:
+                                    'Da li želite nastaviti na online plaćanje putem PayPal-a?',
+                                confirmText: 'Nastavi',
+                              );
+
+                              if (!confirmed) return;
+
+                              await _confirmOnlinePayment();
+                            },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF96A6DA),
                       foregroundColor: Colors.black87,
@@ -365,16 +435,17 @@ class _CheckoutPageState extends State<CheckoutPage> {
                         borderRadius: BorderRadius.circular(28),
                       ),
                     ),
-                    child: busy
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text(
-                            'PLATI ONLINE',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
+                    child:
+                        busy
+                            ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Text(
+                              'PLATI ONLINE',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
                   ),
                 ),
                 if (!hasPdf) ...[
@@ -382,7 +453,22 @@ class _CheckoutPageState extends State<CheckoutPage> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: busy ? null : _confirmCashOnDelivery,
+                      onPressed:
+                          busy
+                              ? null
+                              : () async {
+                                final confirmed = await showAppConfirmDialog(
+                                  context: context,
+                                  title: 'Potvrda narudžbe',
+                                  message:
+                                      'Da li ste sigurni da želite poslati ovu narudžbu?',
+                                  confirmText: 'Pošalji',
+                                );
+
+                                if (!confirmed) return;
+
+                                await _confirmCashOnDelivery();
+                              },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white.withOpacity(0.96),
                         foregroundColor: Colors.black87,
@@ -422,18 +508,18 @@ class _CheckoutPageState extends State<CheckoutPage> {
         children: [
           (ci.coverImage != null && ci.coverImage!.isNotEmpty)
               ? BookImage(
-                  url: imageUrl,
-                  width: 74,
-                  height: 102,
-                  borderRadius: 12,
-                )
+                url: imageUrl,
+                width: 74,
+                height: 102,
+                borderRadius: 12,
+              )
               : Container(
-                  width: 74,
-                  height: 102,
-                  color: Colors.grey.shade200,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.book),
-                ),
+                width: 74,
+                height: 102,
+                color: Colors.grey.shade200,
+                alignment: Alignment.center,
+                child: const Icon(Icons.book),
+              ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -449,10 +535,7 @@ class _CheckoutPageState extends State<CheckoutPage> {
                 const SizedBox(height: 4),
                 Text(
                   ci.authors.join(', '),
-                  style: const TextStyle(
-                    color: Colors.black54,
-                    fontSize: 13,
-                  ),
+                  style: const TextStyle(color: Colors.black54, fontSize: 13),
                 ),
                 const SizedBox(height: 6),
                 Text(

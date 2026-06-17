@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../models/city.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -21,10 +22,9 @@ class _RegisterPageState extends State<RegisterPage> {
 
   DateTime? selectedBirthDate;
   String? selectedGender;
-  String? errorText;
   bool isLoading = false;
 
-  List<dynamic> cities = [];
+  List<City> cities = [];
   int? selectedCityId;
   bool isCitiesLoading = true;
 
@@ -49,30 +49,12 @@ class _RegisterPageState extends State<RegisterPage> {
 
       setState(() {
         isCitiesLoading = false;
-        errorText = "Gradovi se nisu mogli učitati.";
       });
-    }
-  }
 
-  String _getCityName(dynamic city) {
-    if (city is Map<String, dynamic>) {
-      return (city['name'] ??
-              city['cityName'] ??
-              city['naziv'] ??
-              city['grad'] ??
-              '')
-          .toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Gradovi se nisu mogli učitati.")),
+      );
     }
-    return '';
-  }
-
-  int? _getCityId(dynamic city) {
-    if (city is Map<String, dynamic>) {
-      final value = city['id'] ?? city['cityId'];
-      if (value is int) return value;
-      return int.tryParse(value.toString());
-    }
-    return null;
   }
 
   Future<void> _pickBirthDate() async {
@@ -87,46 +69,90 @@ class _RegisterPageState extends State<RegisterPage> {
       setState(() {
         selectedBirthDate = picked;
       });
+
+      _formKey.currentState?.validate();
     }
   }
 
   void _showCityHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        title: const Text("Grad nije na listi"),
-        content: const Text(
-          "Ako ne možeš pronaći svoj grad, trenutno odaberi najbliži dostupni grad ili kontaktiraj podršku/admina kako bi grad bio dodan u sistem.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("U redu"),
+      builder:
+          (context) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            title: const Text("Grad nije na listi"),
+            content: const Text(
+              "Ako ne možeš pronaći svoj grad, trenutno odaberi najbliži dostupni grad ili kontaktiraj podršku/admina kako bi grad bio dodan u sistem.",
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("U redu"),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
-  String? _validateRequired(String? value, String label) {
-    if (value == null || value.trim().isEmpty) {
+  String? _validateName(String? value, String label) {
+    final text = value?.trim() ?? '';
+
+    if (text.isEmpty) {
       return '$label je obavezno polje.';
     }
+
+    if (text.length < 2) {
+      return '$label mora imati najmanje 2 karaktera.';
+    }
+
+    if (text.length > 50) {
+      return '$label ne smije imati više od 50 karaktera.';
+    }
+
+    if (!RegExp(r"^[A-Za-zČĆŽŠĐčćžšđ\s'-]+$").hasMatch(text)) {
+      return '$label smije sadržavati samo slova.';
+    }
+
     return null;
   }
 
   String? _validateEmail(String? value) {
     final email = value?.trim() ?? '';
+
     if (email.isEmpty) {
       return 'Email je obavezno polje.';
     }
 
-    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-    if (!emailRegex.hasMatch(email)) {
-      return 'Unesite ispravan email.';
+    if (email.length > 100) {
+      return 'Email ne smije imati više od 100 karaktera.';
+    }
+
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      return 'Unesite email u formatu primjer@email.com.';
+    }
+
+    return null;
+  }
+
+  String? _validateUsername(String? value) {
+    final username = value?.trim() ?? '';
+
+    if (username.isEmpty) {
+      return 'Korisničko ime je obavezno polje.';
+    }
+
+    if (username.length < 3) {
+      return 'Korisničko ime mora imati najmanje 3 karaktera.';
+    }
+
+    if (username.length > 30) {
+      return 'Korisničko ime ne smije imati više od 30 karaktera.';
+    }
+
+    if (!RegExp(r'^[A-Za-z0-9._-]+$').hasMatch(username)) {
+      return 'Korisničko ime smije sadržavati slova, brojeve, tačku, crticu i donju crtu.';
     }
 
     return null;
@@ -134,35 +160,92 @@ class _RegisterPageState extends State<RegisterPage> {
 
   String? _validatePassword(String? value) {
     final password = value ?? '';
+
     if (password.isEmpty) {
       return 'Šifra je obavezno polje.';
     }
+
     if (password.length < 6) {
       return 'Šifra mora imati najmanje 6 karaktera.';
     }
+
+    if (password.length > 100) {
+      return 'Šifra ne smije imati više od 100 karaktera.';
+    }
+
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'Šifra mora sadržavati barem jedno veliko slovo.';
+    }
+
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'Šifra mora sadržavati barem jedno malo slovo.';
+    }
+
+    if (!RegExp(r'[0-9]').hasMatch(password)) {
+      return 'Šifra mora sadržavati barem jedan broj.';
+    }
+
     return null;
   }
 
   String? _validateConfirmPassword(String? value) {
     final confirmPassword = value ?? '';
+
     if (confirmPassword.isEmpty) {
       return 'Potvrda šifre je obavezno polje.';
     }
+
     if (confirmPassword != passwordController.text) {
       return 'Šifre se ne podudaraju.';
     }
+
     return null;
   }
 
   String? _validatePhone(String? value) {
     final phone = value?.trim() ?? '';
+
     if (phone.isEmpty) {
       return null;
     }
 
-    final phoneRegex = RegExp(r'^[0-9+\-\s]{6,20}$');
-    if (!phoneRegex.hasMatch(phone)) {
-      return 'Unesite ispravan broj telefona.';
+    if (phone.length < 6 || phone.length > 20) {
+      return 'Broj telefona mora imati između 6 i 20 karaktera.';
+    }
+
+    if (!RegExp(r'^\+?[0-9\s/-]+$').hasMatch(phone)) {
+      return 'Broj telefona smije sadržavati brojeve, razmake, /, - i opcionalno + na početku.';
+    }
+
+    final digitsOnly = phone.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (digitsOnly.length < 6) {
+      return 'Broj telefona mora sadržavati najmanje 6 cifara.';
+    }
+
+    return null;
+  }
+
+  String? _validateBirthDate(DateTime? value) {
+    if (value == null) {
+      return 'Datum rođenja je obavezno polje.';
+    }
+
+    final today = DateTime.now();
+    final age =
+        today.year -
+        value.year -
+        ((today.month < value.month ||
+                (today.month == value.month && today.day < value.day))
+            ? 1
+            : 0);
+
+    if (age < 13) {
+      return 'Korisnik mora imati najmanje 13 godina.';
+    }
+
+    if (age > 120) {
+      return 'Unesite ispravan datum rođenja.';
     }
 
     return null;
@@ -172,19 +255,10 @@ class _RegisterPageState extends State<RegisterPage> {
     FocusScope.of(context).unfocus();
 
     final isValid = _formKey.currentState?.validate() ?? false;
-
     if (!isValid) return;
-
-    if (selectedCityId == null) {
-      setState(() {
-        errorText = "Odaberi grad.";
-      });
-      return;
-    }
 
     setState(() {
       isLoading = true;
-      errorText = null;
     });
 
     try {
@@ -194,31 +268,33 @@ class _RegisterPageState extends State<RegisterPage> {
         "email": emailController.text.trim(),
         "username": usernameController.text.trim(),
         "password": passwordController.text,
-        "phoneNumber": phoneController.text.trim().isEmpty
-            ? null
-            : phoneController.text.trim(),
+        "phoneNumber":
+            phoneController.text.trim().isEmpty
+                ? null
+                : phoneController.text.trim(),
         "birthDate": selectedBirthDate?.toIso8601String(),
         "gender": selectedGender,
         "cityId": selectedCityId,
-        "roleId": 0,
       });
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Registracija uspješna. Prijavi se."),
-        ),
+        const SnackBar(content: Text("Registracija uspješna. Prijavi se.")),
       );
 
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        errorText = "Registracija nije uspjela. Provjeri podatke.";
-      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Registracija nije uspjela. Provjeri podatke."),
+        ),
+      );
     } finally {
       if (!mounted) return;
+
       setState(() {
         isLoading = false;
       });
@@ -279,18 +355,18 @@ class _RegisterPageState extends State<RegisterPage> {
                         "Ime",
                         firstNameController,
                         false,
-                        validator: (value) =>
-                            _validateRequired(value, "Ime"),
+                        validator: (value) => _validateName(value, "Ime"),
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
                         "Prezime",
                         lastNameController,
                         false,
-                        validator: (value) =>
-                            _validateRequired(value, "Prezime"),
+                        validator: (value) => _validateName(value, "Prezime"),
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
@@ -300,15 +376,16 @@ class _RegisterPageState extends State<RegisterPage> {
                         keyboardType: TextInputType.emailAddress,
                         validator: _validateEmail,
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
                         "Korisničko ime",
                         usernameController,
                         false,
-                        validator: (value) =>
-                            _validateRequired(value, "Korisničko ime"),
+                        validator: _validateUsername,
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
@@ -317,6 +394,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         true,
                         validator: _validatePassword,
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
@@ -325,6 +403,7 @@ class _RegisterPageState extends State<RegisterPage> {
                         true,
                         validator: _validateConfirmPassword,
                       ),
+
                       const SizedBox(height: 16),
 
                       _buildTextField(
@@ -334,49 +413,74 @@ class _RegisterPageState extends State<RegisterPage> {
                         keyboardType: TextInputType.phone,
                         validator: _validatePhone,
                       ),
+
                       const SizedBox(height: 16),
 
-                      GestureDetector(
-                        onTap: _pickBirthDate,
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 18,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            selectedBirthDate == null
-                                ? "Odaberi datum rođenja"
-                                : "${selectedBirthDate!.day}.${selectedBirthDate!.month}.${selectedBirthDate!.year}",
-                            style: TextStyle(
-                              color: selectedBirthDate == null
-                                  ? Colors.grey[700]
-                                  : Colors.black,
-                            ),
-                          ),
-                        ),
+                      FormField<DateTime>(
+                        validator: (_) => _validateBirthDate(selectedBirthDate),
+                        builder: (field) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              GestureDetector(
+                                onTap: _pickBirthDate,
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 18,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.8),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border:
+                                        field.hasError
+                                            ? Border.all(color: Colors.red)
+                                            : null,
+                                  ),
+                                  child: Text(
+                                    selectedBirthDate == null
+                                        ? "Odaberi datum rođenja"
+                                        : "${selectedBirthDate!.day}.${selectedBirthDate!.month}.${selectedBirthDate!.year}",
+                                    style: TextStyle(
+                                      color:
+                                          selectedBirthDate == null
+                                              ? Colors.grey[700]
+                                              : Colors.black,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (field.hasError)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 12,
+                                    top: 6,
+                                  ),
+                                  child: Text(
+                                    field.errorText!,
+                                    style: const TextStyle(
+                                      color: Colors.red,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
                       ),
+
                       const SizedBox(height: 16),
 
                       DropdownButtonFormField<String>(
                         value: selectedGender,
-                        decoration: InputDecoration(
-                          labelText: "Spol",
-                          filled: true,
-                          fillColor: Colors.white.withOpacity(0.8),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Spol je obavezno polje.';
+                          }
+                          return null;
+                        },
+                        decoration: _dropdownDecoration("Spol"),
                         items: const [
                           DropdownMenuItem(
                             value: "Muško",
@@ -392,6 +496,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             selectedGender = value;
                           });
                         },
+                        autovalidateMode: AutovalidateMode.onUserInteraction,
                       ),
 
                       const SizedBox(height: 16),
@@ -412,7 +517,9 @@ class _RegisterPageState extends State<RegisterPage> {
                               SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                               SizedBox(width: 12),
                               Text("Učitavanje gradova..."),
@@ -422,41 +529,28 @@ class _RegisterPageState extends State<RegisterPage> {
                       else
                         DropdownButtonFormField<int>(
                           value: selectedCityId,
-                          decoration: InputDecoration(
-                            labelText: "Grad *",
-                            filled: true,
-                            fillColor: Colors.white.withOpacity(0.8),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
-                          items: cities
-                              .map((city) {
-                                final cityId = _getCityId(city);
-                                final cityName = _getCityName(city);
-
-                                if (cityId == null || cityName.isEmpty) {
-                                  return null;
-                                }
-
-                                return DropdownMenuItem<int>(
-                                  value: cityId,
-                                  child: Text(cityName),
-                                );
-                              })
-                              .whereType<DropdownMenuItem<int>>()
-                              .toList(),
+                          validator: (value) {
+                            if (value == null) {
+                              return 'Grad je obavezno polje.';
+                            }
+                            return null;
+                          },
+                          decoration: _dropdownDecoration("Grad *"),
+                          items:
+                              cities
+                                  .map(
+                                    (city) => DropdownMenuItem<int>(
+                                      value: city.id,
+                                      child: Text(city.name),
+                                    ),
+                                  )
+                                  .toList(),
                           onChanged: (value) {
                             setState(() {
                               selectedCityId = value;
-                              errorText = null;
                             });
                           },
+                          autovalidateMode: AutovalidateMode.onUserInteraction,
                         ),
 
                       const SizedBox(height: 8),
@@ -476,22 +570,17 @@ class _RegisterPageState extends State<RegisterPage> {
                         ),
                       ),
 
-                      if (errorText != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            errorText!,
-                            style: const TextStyle(color: Colors.red),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-
                       const SizedBox(height: 16),
 
                       ElevatedButton(
                         onPressed: isLoading ? null : handleRegister,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color.fromARGB(255, 181, 156, 74),
+                          backgroundColor: const Color.fromARGB(
+                            255,
+                            181,
+                            156,
+                            74,
+                          ),
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 40,
@@ -501,16 +590,17 @@ class _RegisterPageState extends State<RegisterPage> {
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        child: isLoading
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Text("REGISTRUJ SE"),
+                        child:
+                            isLoading
+                                ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                                : const Text("REGISTRUJ SE"),
                       ),
 
                       const SizedBox(height: 12),
@@ -532,6 +622,36 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         ),
       ),
+    );
+  }
+
+  InputDecoration _dropdownDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      filled: true,
+      fillColor: Colors.white.withOpacity(0.8),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.black54, width: 1),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.red, width: 1.2),
+      ),
+      errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
     );
   }
 
@@ -572,6 +692,7 @@ class _RegisterPageState extends State<RegisterPage> {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Colors.red, width: 1.2),
         ),
+        errorStyle: const TextStyle(color: Colors.red, fontSize: 12),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 14,

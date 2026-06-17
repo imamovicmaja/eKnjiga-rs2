@@ -138,8 +138,56 @@ namespace eKnjiga.Worker.Messaging
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed processing email message. Nacking with requeue.");
-                _ch.BasicNack(ea.DeliveryTag, multiple: false, requeue: true);
+                var retryCount = 0;
+
+                if (ea.BasicProperties.Headers != null &&
+                    ea.BasicProperties.Headers.TryGetValue("x-retry-count", out var value))
+                {
+                    if (value is byte[] bytes)
+                    {
+                        int.TryParse(Encoding.UTF8.GetString(bytes), out retryCount);
+                    }
+                    else if (value is int intValue)
+                    {
+                        retryCount = intValue;
+                    }
+                }
+
+                if (retryCount >= 4)
+                {
+                    _logger.LogError(ex,
+                        "Failed processing email message after {RetryCount} retries. Acking to drop.",
+                        retryCount);
+
+                    _ch.BasicAck(ea.DeliveryTag, multiple: false);
+                    return;
+                }
+
+                var delaySeconds = (int)Math.Pow(2, retryCount); // 1, 2, 4, 8
+
+                _logger.LogWarning(ex,
+                    "Failed processing email message. Retrying in {DelaySeconds}s. Retry {RetryCount}.",
+                    delaySeconds,
+                    retryCount + 1);
+
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds));
+
+                var props = _ch.CreateBasicProperties();
+                props.Persistent = true;
+                props.Headers = ea.BasicProperties.Headers != null
+                    ? new Dictionary<string, object>(ea.BasicProperties.Headers)
+                    : new Dictionary<string, object>();
+
+                props.Headers["x-retry-count"] = retryCount + 1;
+
+                _ch.BasicPublish(
+                    exchange: _exchange,
+                    routingKey: _routingKey,
+                    basicProperties: props,
+                    body: ea.Body
+                );
+
+                _ch.BasicAck(ea.DeliveryTag, multiple: false);
             }
         }
 

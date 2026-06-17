@@ -28,6 +28,10 @@ class _OrderPageState extends State<OrderPage> {
   int? _selectedPaymentStatus;
   int? _selectedUserId;
 
+  int _ordersPage = 1;
+  static const int _pageSize = 10;
+  bool _ordersHasMore = true;
+
   List<User> _filterUsers = [];
   bool _loadingFilterUsers = false;
 
@@ -101,18 +105,19 @@ class _OrderPageState extends State<OrderPage> {
 
       if (!mounted) return;
       setState(() {
-        _filterUsers = fetched
-            .map<User>(
-              (m) => User(
-                id: m['id'],
-                firstName: m['name'] ?? '',
-                lastName: '',
-                username: '',
-                email: m['email'] ?? '',
-                isActive: true,
-              ),
-            )
-            .toList();
+        _filterUsers =
+            fetched
+                .map<User>(
+                  (u) => User(
+                    id: u.id,
+                    firstName: u.firstName,
+                    lastName: '',
+                    username: '',
+                    email: u.email,
+                    isActive: true,
+                  ),
+                )
+                .toList();
       });
     } catch (e) {
       debugPrint("Greška pri dohvaćanju korisnika za filter narudžbi: $e");
@@ -122,93 +127,115 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> loadOrdersFromApi({
-  int? userId,
-  double? totalPrice,
-  int? orderStatus,
-  int? paymentStatus,
-}) async {
-  try {
-    if (mounted) {
-      setState(() => _loadingOrders = true);
-    }
-
-    int? typeInt;
-
-    if (selectedSidebar == "NARUDZBE") {
-      typeInt = 0; // Purchase
-    } else if (selectedSidebar == "REZERVACIJA") {
-      typeInt = 1; // Reservation
-    } else if (selectedSidebar == "ARHIVA") {
-      typeInt = null; // ne koristi Archive type
-    }
-
-    final fetched = await ApiService.fetchOrders(
-      type: typeInt,
-      userId: userId,
-      totalPrice: totalPrice,
-      orderStatus: orderStatus,
-      paymentStatus: paymentStatus,
-    );
-
-    List<OrderResponse> filtered = fetched;
-
-    // Tab filter
-    if (selectedSidebar == "NARUDZBE") {
-      filtered = filtered.where((o) => o.type == 0).toList();
-    } else if (selectedSidebar == "REZERVACIJA") {
-      filtered = filtered.where((o) => o.type == 1).toList();
-    } else if (selectedSidebar == "ARHIVA") {
-      filtered = filtered.where((o) => o.orderStatus == 2).toList();
-    }
-
-    // Dropdown status filter
-    if (_selectedOrderStatus != null) {
-      filtered = filtered
-          .where((o) => o.orderStatus == _selectedOrderStatus)
-          .toList();
-    } else {
-      // bez izabranog statusa:
-      // aktivni tabovi ne prikazuju completed
-      if (selectedSidebar == "NARUDZBE" ||
-          selectedSidebar == "REZERVACIJA") {
-        filtered = filtered.where((o) => o.orderStatus != 2).toList();
+    int? userId,
+    double? totalPrice,
+    int? orderStatus,
+    int? paymentStatus,
+    bool reset = true,
+  }) async {
+    try {
+      if (reset) {
+        _ordersPage = 1;
       }
-    }
 
-    // Payment status filter
-    if (_selectedPaymentStatus != null) {
-      filtered = filtered
-          .where((o) => o.paymentStatus == _selectedPaymentStatus)
-          .toList();
-    }
+      if (mounted) setState(() => _loadingOrders = true);
 
-    // User filter
-    if (_selectedUserId != null) {
-      filtered = filtered
-          .where((o) => o.user?.id == _selectedUserId)
-          .toList();
-    }
+      int? typeInt;
+      int? orderStatusForRequest = orderStatus;
+      bool? excludeCompleted;
 
-    // Total price filter
-    if (totalPrice != null) {
-      filtered = filtered
-          .where((o) => o.totalPrice == totalPrice)
-          .toList();
-    }
+      if (selectedSidebar == "NARUDZBE") {
+        typeInt = 0;
+        excludeCompleted = orderStatusForRequest == null ? true : null;
+      } else if (selectedSidebar == "REZERVACIJA") {
+        typeInt = 1;
+        excludeCompleted = orderStatusForRequest == null ? true : null;
+      } else if (selectedSidebar == "ARHIVA") {
+        typeInt = null;
+        orderStatusForRequest ??= 2;
+        excludeCompleted = null;
+      }
 
-    if (mounted) {
-      setState(() {
-        orders = filtered;
-      });
-    }
-  } catch (e) {
-    debugPrint("Greška: $e");
-  } finally {
-    if (mounted) {
-      setState(() => _loadingOrders = false);
+      final fetched = await ApiService.fetchOrders(
+        type: typeInt,
+        userId: userId,
+        totalPrice: totalPrice,
+        orderStatus: orderStatusForRequest,
+        paymentStatus: paymentStatus,
+        excludeCompleted: excludeCompleted,
+        page: _ordersPage,
+        pageSize: _pageSize,
+      );
+
+      if (mounted) {
+        setState(() {
+          orders = fetched;
+          _ordersHasMore = fetched.length == _pageSize;
+        });
+      }
+    } catch (e) {
+      debugPrint("Greška: $e");
+    } finally {
+      if (mounted) setState(() => _loadingOrders = false);
     }
   }
-}
+
+  Future<void> loadMoreOrders() async {
+    if (!_ordersHasMore || _loadingOrders) return;
+
+    final nextPage = _ordersPage + 1;
+
+    final totalPriceText = _totalPriceCtrl.text.trim();
+
+    double? totalPrice;
+    if (totalPriceText.isNotEmpty) {
+      final normalized = totalPriceText.replaceAll(',', '.');
+      totalPrice = double.tryParse(normalized);
+    }
+
+    try {
+      if (mounted) setState(() => _loadingOrders = true);
+
+      int? typeInt;
+      int? orderStatusForRequest = _selectedOrderStatus;
+      bool? excludeCompleted;
+
+      if (selectedSidebar == "NARUDZBE") {
+        typeInt = 0;
+        excludeCompleted = orderStatusForRequest == null ? true : null;
+      } else if (selectedSidebar == "REZERVACIJA") {
+        typeInt = 1;
+        excludeCompleted = orderStatusForRequest == null ? true : null;
+      } else if (selectedSidebar == "ARHIVA") {
+        typeInt = null;
+        orderStatusForRequest ??= 2;
+        excludeCompleted = null;
+      }
+
+      final fetched = await ApiService.fetchOrders(
+        type: typeInt,
+        userId: _selectedUserId,
+        totalPrice: totalPrice,
+        orderStatus: orderStatusForRequest,
+        paymentStatus: _selectedPaymentStatus,
+        excludeCompleted: excludeCompleted,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (mounted) {
+        setState(() {
+          _ordersPage = nextPage;
+          orders.addAll(fetched);
+          _ordersHasMore = fetched.length == _pageSize;
+        });
+      }
+    } catch (e) {
+      debugPrint("Greška pri učitavanju još narudžbi: $e");
+    } finally {
+      if (mounted) setState(() => _loadingOrders = false);
+    }
+  }
 
   Future<void> _reloadWithCurrentFilters() async {
     final totalPriceText = _totalPriceCtrl.text.trim();
@@ -242,7 +269,8 @@ class _OrderPageState extends State<OrderPage> {
         totalPrice = double.tryParse(normalized);
       }
 
-      final allEmpty = userId == null &&
+      final allEmpty =
+          userId == null &&
           totalPrice == null &&
           _selectedOrderStatus == null &&
           _selectedPaymentStatus == null;
@@ -287,87 +315,109 @@ class _OrderPageState extends State<OrderPage> {
   void showOrderDetailsDialog(BuildContext context, OrderResponse order) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              selectedSidebar == "REZERVACIJA"
-                  ? Icons.event_note
-                  : selectedSidebar == "ARHIVA"
+      builder:
+          (_) => AlertDialog(
+            title: Row(
+              children: [
+                Icon(
+                  selectedSidebar == "REZERVACIJA"
+                      ? Icons.event_note
+                      : selectedSidebar == "ARHIVA"
                       ? Icons.archive
                       : Icons.shopping_cart,
-              color: const Color.fromARGB(255, 181, 156, 74),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              selectedSidebar == "REZERVACIJA"
-                  ? "Detalji rezervacije"
-                  : selectedSidebar == "ARHIVA"
+                  color: const Color.fromARGB(255, 181, 156, 74),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  selectedSidebar == "REZERVACIJA"
+                      ? "Detalji rezervacije"
+                      : selectedSidebar == "ARHIVA"
                       ? "Detalji arhive"
                       : "Detalji narudžbe",
-            ),
-          ],
-        ),
-        content: SizedBox(
-          width: 500,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _infoRow("Kupac", order.user?.fullName ?? "Nepoznato"),
-                _infoRow("Datum", formatShortDate(order.orderDate)),
-                _infoRow("Status", orderStatusText(order.orderStatus)),
-                _infoRow("Plaćanje", paymentStatusText(order.paymentStatus)),
-                _infoRow("Tip", orderTypeText(order.type)),
-                const Divider(),
-                const Text(
-                  "Knjige:",
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 8),
-                ...order.orderItems.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text("📖 ${item.book?.name ?? 'Nepoznata knjiga'}"),
-                        Text("Količina: ${item.quantity}"),
-                        Text(
-                          "Cijena po komadu: ${item.unitPrice.toStringAsFixed(2)} KM",
-                        ),
-                        const Divider(),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Ukupno: ${order.totalPrice.toStringAsFixed(2)} KM",
-                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              backgroundColor: Colors.red.shade300,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            content: SizedBox(
+              width: 500,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _infoRow("Kupac", order.user?.fullName ?? "Nepoznato"),
+                    _infoRow("Datum", formatShortDate(order.orderDate)),
+                    _infoRow("Status", orderStatusText(order.orderStatus)),
+                    _infoRow(
+                      "Plaćanje",
+                      paymentStatusText(order.paymentStatus),
+                    ),
+                    if (_isAdmin && order.statusChangedByName != null)
+                      _infoRow("Promijenio", order.statusChangedByName!),
+
+                    if (_isAdmin && order.statusChangedAt != null)
+                      _infoRow(
+                        "Vrijeme izmjene",
+                        formatShortDate(order.statusChangedAt!),
+                      ),
+
+                    if (order.cancellationReason != null &&
+                        order.cancellationReason!.isNotEmpty)
+                      _infoRow("Razlog otkazivanja", order.cancellationReason!),
+                    _infoRow("Tip", orderTypeText(order.type)),
+                    const Divider(),
+                    const Text(
+                      "Knjige:",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ...order.orderItems.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text("📖 ${item.book?.name ?? 'Nepoznata knjiga'}"),
+                            Text("Količina: ${item.quantity}"),
+                            Text(
+                              "Cijena po komadu: ${item.unitPrice.toStringAsFixed(2)} KM",
+                            ),
+                            const Divider(),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Ukupno: ${order.totalPrice.toStringAsFixed(2)} KM",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            child: const Text("Zatvori"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.red.shade300,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                ),
+                child: const Text("Zatvori"),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
   void showEditOrderDialog(BuildContext context, OrderResponse order) {
     int selectedStatus = order.orderStatus;
+    final reasonController = TextEditingController();
     final List<int> possibleStatuses = [0, 1, 2, 3];
+    int selectedPaymentStatus = order.paymentStatus;
+    final List<int> possiblePaymentStatuses = [0, 1, 2, 3, 4];
 
     showDialog(
       context: context,
@@ -397,7 +447,10 @@ class _OrderPageState extends State<OrderPage> {
                     children: [
                       _infoRow("Kupac", order.user?.fullName ?? "Nepoznato"),
                       _infoRow("Datum", formatShortDate(order.orderDate)),
-                      _infoRow("Plaćanje", paymentStatusText(order.paymentStatus)),
+                      _infoRow(
+                        "Plaćanje",
+                        paymentStatusText(order.paymentStatus),
+                      ),
                       _infoRow("Tip", orderTypeText(order.type)),
                       const SizedBox(height: 12),
                       const Text(
@@ -413,20 +466,77 @@ class _OrderPageState extends State<OrderPage> {
                             vertical: 8,
                           ),
                         ),
-                        items: possibleStatuses
-                            .map(
-                              (s) => DropdownMenuItem(
-                                value: s,
-                                child: Text(orderStatusText(s)),
-                              ),
-                            )
-                            .toList(),
+                        items:
+                            possibleStatuses
+                                .where(
+                                  (s) => _canSelectOrderStatus(
+                                    order.orderStatus,
+                                    s,
+                                  ),
+                                )
+                                .map(
+                                  (s) => DropdownMenuItem(
+                                    value: s,
+                                    child: Text(orderStatusText(s)),
+                                  ),
+                                )
+                                .toList(),
                         onChanged: (val) {
                           if (val != null) {
                             setState(() => selectedStatus = val);
                           }
                         },
                       ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        "Status plaćanja",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      DropdownButtonFormField<int>(
+                        value: selectedPaymentStatus,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        items:
+                            possiblePaymentStatuses
+                                .where(
+                                  (p) => _canSelectPaymentStatus(
+                                    order.paymentStatus,
+                                    p,
+                                  ),
+                                )
+                                .map(
+                                  (p) => DropdownMenuItem(
+                                    value: p,
+                                    child: Text(paymentStatusText(p)),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() => selectedPaymentStatus = val);
+                          }
+                        },
+                      ),
+                      if (selectedStatus == 3) ...[
+                        const SizedBox(height: 12),
+                        const Text(
+                          "Razlog otkazivanja",
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextField(
+                          controller: reasonController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            hintText: "Unesite razlog otkazivanja...",
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       const Divider(),
                       const Text(
@@ -439,7 +549,9 @@ class _OrderPageState extends State<OrderPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text("📖 ${item.book?.name ?? 'Nepoznata knjiga'}"),
+                              Text(
+                                "📖 ${item.book?.name ?? 'Nepoznata knjiga'}",
+                              ),
                               Text("Količina: ${item.quantity}"),
                               Text(
                                 "Cijena: ${item.unitPrice.toStringAsFixed(2)} KM",
@@ -465,8 +577,21 @@ class _OrderPageState extends State<OrderPage> {
                 TextButton(
                   onPressed: () async {
                     try {
+                      final reason = reasonController.text.trim();
+
+                      if (selectedStatus == 3 && reason.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Razlog otkazivanja je obavezan."),
+                          ),
+                        );
+                        return;
+                      }
+
                       await ApiService.updateOrder(order.id, {
                         'orderStatus': selectedStatus,
+                        'paymentStatus': selectedPaymentStatus,
+                        if (selectedStatus == 3) 'reason': reason,
                       });
 
                       if (mounted) {
@@ -484,9 +609,9 @@ class _OrderPageState extends State<OrderPage> {
                       }
                     } catch (e) {
                       if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("Greška: $e")),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text("Greška: $e")));
                       }
                     }
                   },
@@ -612,7 +737,11 @@ class _OrderPageState extends State<OrderPage> {
           ),
           const SizedBox(width: 16),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              await ApiService.logout();
+
+              if (!context.mounted) return;
+
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -622,10 +751,7 @@ class _OrderPageState extends State<OrderPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color.fromARGB(255, 181, 156, 74),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 12,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: const Text("Odjavi se"),
           ),
@@ -711,12 +837,17 @@ class _OrderPageState extends State<OrderPage> {
                 child: DropdownButtonFormField<int?>(
                   value: _selectedOrderStatus,
                   isExpanded: true,
-                  decoration:
-                      _filterDecoration("Status narudžbe", Icons.info_outline),
+                  decoration: _filterDecoration(
+                    "Status narudžbe",
+                    Icons.info_outline,
+                  ),
                   items: [
                     const DropdownMenuItem<int?>(
                       value: null,
-                      child: Text("Svi statusi", overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        "Svi statusi",
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     ..._orderStatusOptions.map(
                       (s) => DropdownMenuItem<int?>(
@@ -747,7 +878,10 @@ class _OrderPageState extends State<OrderPage> {
                   items: [
                     const DropdownMenuItem<int?>(
                       value: null,
-                      child: Text("Sva plaćanja", overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        "Sva plaćanja",
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     ..._paymentStatusOptions.map(
                       (p) => DropdownMenuItem<int?>(
@@ -791,87 +925,130 @@ class _OrderPageState extends State<OrderPage> {
           return const Center(child: Text("Nema podataka za odabrani tip."));
         }
 
-        return ListView.builder(
-          itemCount: orders.length,
-          itemBuilder: (context, index) {
-            final order = orders[index];
-
-            final icon = selectedSidebar == "NARUDZBE"
-                ? Icons.shopping_cart
-                : selectedSidebar == "REZERVACIJA"
-                    ? Icons.event_note
-                    : Icons.archive;
-
-            final title = selectedSidebar == "REZERVACIJA"
-                ? "Rezervacija #${order.id}"
-                : selectedSidebar == "ARHIVA"
-                    ? "Arhiva #${order.id}"
-                    : "Narudžba #${order.id}";
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: userCard(
-                title,
-                "${order.user?.fullName ?? "Nepoznat korisnik"} • "
-                "${orderStatusText(order.orderStatus)} • "
-                "${formatShortDate(order.orderDate)}",
-                icon,
-                onTap: () => showOrderDetailsDialog(context, order),
-                onEdit: () => showEditOrderDialog(context, order),
-                onDelete: _isAdmin
-                    ? () async {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text("Potvrda brisanja"),
-                            content: Text(
-                              selectedSidebar == "REZERVACIJA"
-                                  ? "Da li sigurno želiš obrisati ovu rezervaciju?"
-                                  : "Da li sigurno želiš obrisati ovu narudžbu?",
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: orders.length + (_ordersHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == orders.length) {
+                    return InkWell(
+                      onTap: _loadingOrders ? null : loadMoreOrders,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingOrders ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, false),
-                                child: const Text("Otkaži"),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(context, true),
-                                child: const Text("Obriši"),
-                              ),
-                            ],
                           ),
-                        );
+                        ),
+                      ),
+                    );
+                  }
+                  final order = orders[index];
 
-                        if (confirm == true) {
-                          try {
-                            await ApiService.deleteOrder(order.id);
-                            await _reloadWithCurrentFilters();
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    selectedSidebar == "REZERVACIJA"
-                                        ? "Rezervacija uspješno obrisana"
-                                        : "Narudžba uspješno obrisana",
-                                  ),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text("Greška pri brisanju: $e"),
-                                ),
-                              );
-                            }
-                          }
-                        }
-                      }
-                    : null,
+                  final icon =
+                      selectedSidebar == "NARUDZBE"
+                          ? Icons.shopping_cart
+                          : selectedSidebar == "REZERVACIJA"
+                          ? Icons.event_note
+                          : Icons.archive;
+
+                  final title =
+                      selectedSidebar == "REZERVACIJA"
+                          ? "Rezervacija #${order.id}"
+                          : selectedSidebar == "ARHIVA"
+                          ? "Arhiva #${order.id}"
+                          : "Narudžba #${order.id}";
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: userCard(
+                      title,
+                      "${order.user?.fullName ?? "Nepoznat korisnik"} • "
+                      "${orderStatusText(order.orderStatus)} • "
+                      "${formatShortDate(order.orderDate)}",
+                      icon,
+                      onTap: () => showOrderDetailsDialog(context, order),
+                      onEdit: () => showEditOrderDialog(context, order),
+                      onDelete:
+                          _isAdmin
+                              ? () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder:
+                                      (_) => AlertDialog(
+                                        title: const Text("Potvrda brisanja"),
+                                        content: Text(
+                                          selectedSidebar == "REZERVACIJA"
+                                              ? "Da li sigurno želiš obrisati ovu rezervaciju?"
+                                              : "Da li sigurno želiš obrisati ovu narudžbu?",
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed:
+                                                () => Navigator.pop(
+                                                  context,
+                                                  false,
+                                                ),
+                                            child: const Text("Otkaži"),
+                                          ),
+                                          TextButton(
+                                            onPressed:
+                                                () => Navigator.pop(
+                                                  context,
+                                                  true,
+                                                ),
+                                            child: const Text("Obriši"),
+                                          ),
+                                        ],
+                                      ),
+                                );
+
+                                if (confirm == true) {
+                                  try {
+                                    await ApiService.deleteOrder(order.id);
+                                    await _reloadWithCurrentFilters();
+
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            selectedSidebar == "REZERVACIJA"
+                                                ? "Rezervacija uspješno obrisana"
+                                                : "Narudžba uspješno obrisana",
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            "Greška pri brisanju: $e",
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
+                                }
+                              }
+                              : null,
+                    ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ],
         );
 
       default:
@@ -915,9 +1092,10 @@ class _OrderPageState extends State<OrderPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: isActive
-                ? const Color.fromARGB(255, 181, 156, 74)
-                : Colors.transparent,
+            color:
+                isActive
+                    ? const Color.fromARGB(255, 181, 156, 74)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -961,12 +1139,12 @@ class _OrderPageState extends State<OrderPage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight:
-                      isActive ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                   color: isActive ? Colors.black : Colors.grey[700],
-                  backgroundColor: isActive
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.transparent,
+                  backgroundColor:
+                      isActive
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.transparent,
                 ),
               ),
             ),
@@ -1049,21 +1227,53 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   String paymentStatusText(int status) {
-  switch (status) {
-    case 0:
-      return "Neplaćeno";
-    case 1:
-      return "Na čekanju";
-    case 2:
-      return "Plaćeno";
-    case 3:
-      return "Refundirano";
-    case 4:
-      return "Neuspjelo";
-    default:
-      return "Nepoznato";
+    switch (status) {
+      case 0:
+        return "Neplaćeno";
+      case 1:
+        return "Na čekanju";
+      case 2:
+        return "Plaćeno";
+      case 3:
+        return "Refundirano";
+      case 4:
+        return "Neuspjelo";
+      default:
+        return "Nepoznato";
+    }
   }
-}
+
+  bool _canSelectOrderStatus(int current, int next) {
+    if (current == next) return true;
+
+    // Završeno i Otkazano su finalni statusi
+    if (current == 2 || current == 3) return false;
+
+    // Ne dozvoli vraćanje na manji status
+    return next > current;
+  }
+
+  bool _canSelectPaymentStatus(int current, int next) {
+    if (current == next) return true;
+
+    switch (current) {
+      case 0: // Neplaćeno
+        return next == 1 || next == 2 || next == 4;
+
+      case 1: // Na čekanju
+        return next == 2 || next == 4;
+
+      case 2: // Plaćeno
+        return next == 3;
+
+      case 3: // Refundirano
+      case 4: // Neuspjelo
+        return false;
+
+      default:
+        return false;
+    }
+  }
 
   String orderTypeText(int type) {
     switch (type) {

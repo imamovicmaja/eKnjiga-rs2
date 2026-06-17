@@ -3,14 +3,12 @@ using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
+using eKnjiga.Model.Constants;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
+
 
 namespace eKnjiga.Services
 {
@@ -46,10 +44,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private PublicUserResponse? MapToPublicUserResponse(Database.User? user)
@@ -102,6 +100,8 @@ namespace eKnjiga.Services
 
         public override async Task<PagedResult<CommentResponse>> GetAsync(CommentSearchObject search)
         {
+            search ??= new CommentSearchObject();
+
             var query = _context.Comments
                 .Include(c => c.User)
                     .ThenInclude(u => u.Role)
@@ -117,24 +117,21 @@ namespace eKnjiga.Services
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderByDescending(c => c.CreatedAt);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 
@@ -170,12 +167,11 @@ namespace eKnjiga.Services
         {
             EnsureUserAuthenticated();
 
-            if (!IsAdmin())
-            {
-                var currentUserId = GetCurrentUserId()!.Value;
-                entity.UserId = currentUserId;
-                request.UserId = currentUserId;
-            }
+            var currentUserId = GetCurrentUserId()!.Value;
+
+            entity.UserId = currentUserId;
+            request.UserId = currentUserId;
+            entity.CreatedAt = DateTime.UtcNow;
 
             await Task.CompletedTask;
         }
@@ -185,12 +181,10 @@ namespace eKnjiga.Services
             EnsureUserAuthenticated();
             EnsureCanModifyComment(entity);
 
-            if (!IsAdmin())
-            {
-                var currentUserId = GetCurrentUserId()!.Value;
-                entity.UserId = currentUserId;
-                request.UserId = currentUserId;
-            }
+            var currentUserId = GetCurrentUserId()!.Value;
+
+            entity.UserId = currentUserId;
+            request.UserId = currentUserId;
 
             await Task.CompletedTask;
         }
@@ -205,7 +199,7 @@ namespace eKnjiga.Services
                 Likes = comment.Reactions.Count(r => r.IsLike),
                 Dislikes = comment.Reactions.Count(r => !r.IsLike),
 
-                Replies = comment.Replies?.Select(ca => new CommentAnswerResponse
+                Replies = comment.Replies?.OrderByDescending(ca => ca.CreatedAt).Select(ca => new CommentAnswerResponse
                 {
                     Id = ca.Id,
                     Content = ca.Content,

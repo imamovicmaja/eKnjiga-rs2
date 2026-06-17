@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace eKnjiga.WebAPI.Controllers
 {
     [Authorize]
-    public class ReviewController : BaseCRUDController<ReviewResponse, ReviewSearchObject, ReviewUpsertRequest, ReviewUpsertRequest>
+    public class ReviewController : BaseCRUDController<ReviewResponse, ReviewSearchObject, ReviewUpsertRequest, ReviewUpdateRequest>
     {
         public ReviewController(IReviewService service) : base(service)
         {

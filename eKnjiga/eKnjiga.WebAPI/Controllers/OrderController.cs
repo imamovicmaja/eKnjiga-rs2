@@ -2,6 +2,7 @@ using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,12 +23,12 @@ namespace eKnjiga.WebAPI.Controllers
 
         private bool IsAdmin()
         {
-            return User.IsInRole("Admin");
+            return User.IsInRole(RoleNames.Admin);
         }
 
         private bool IsEmployee()
         {
-            return User.IsInRole("Employee");
+            return User.IsInRole(RoleNames.Employee);
         }
 
         private bool IsStaff()
@@ -102,6 +103,26 @@ namespace eKnjiga.WebAPI.Controllers
             }
 
             return await ((IOrderService)_service).CancelAsync(id);
+        }
+
+        [HttpPut("{id}")]
+        public override async Task<ActionResult<OrderResponse?>> Update(int id, [FromBody] OrderUpdateRequest request)
+        {
+            if (!IsStaff())
+                return Forbid();
+
+            var result = await ((IOrderService)_service).UpdateAsync(id, request);
+
+            if (result == null)
+                return NotFound();
+
+            return Ok(result);
+        }
+
+        [HttpGet("report")]
+        public async Task<OrderReportResponse> GetReport([FromQuery] OrderReportRequest request)
+        {
+            return await ((IOrderService)_service).GetReportAsync(request);
         }
     }
 }

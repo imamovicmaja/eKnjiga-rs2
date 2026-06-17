@@ -38,5 +38,13 @@ namespace eKnjiga.Services.Database
         public User User { get; set; } = null!;
 
         public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
+
+        public int? StatusChangedByUserId { get; set; }
+        public User? StatusChangedByUser { get; set; }
+
+        public DateTime? StatusChangedAt { get; set; }
+
+        [MaxLength(300)]
+        public string? CancellationReason { get; set; }
     }
 }

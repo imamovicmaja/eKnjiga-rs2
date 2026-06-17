@@ -1,19 +1,20 @@
 using eKnjiga.Services;
 using eKnjiga.Services.Database;
 using eKnjiga.Services.Database.seedAssets;
-using eKnjiga.WebAPI.Filters;
 using eKnjiga.WebAPI.Middleware;
 using Mapster;
-using MapsterMapper;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Configuration;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 using eKnjiga.Services.Messaging;
 using System.Net;
-using System;
-using eKnjiga.Services;
+using DotNetEnv;
+
+
+Env.Load("../.env");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +35,8 @@ builder.Services.AddTransient<IReviewService, ReviewService>();
 builder.Services.AddTransient<IUserReportService, UserReportService>();
 builder.Services.AddTransient<ICommentReactionService, CommentReactionService>();
 builder.Services.AddScoped<IRecommendationService, RecommendationService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IJwtService, JwtService>();
 
 builder.Services.AddTransient<IPaypalService, PaypalService>();
 builder.Services.AddHttpClient("paypal", client =>
@@ -59,8 +62,59 @@ var connectionString = builder.Configuration.GetConnectionString("DefaultConnect
 
 builder.Services.AddDatabaseServices(connectionString);
 
-builder.Services.AddAuthentication("BasicAuthentication")
-    .AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", null);
+//builder.Services.AddAuthentication("BasicAuthentication")
+//.AddScheme<AuthenticationSchemeOptions, BasicAuthenticationHandler>("BasicAuthentication", null);
+
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("JWT ključ nije konfigurisan.");
+
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "eKnjiga";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "eKnjigaUsers";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = false;
+        options.SaveToken = true;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
+
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var authHeader = context.Request.Headers["Authorization"].ToString();
+
+                if (string.IsNullOrWhiteSpace(authHeader) ||
+                    !authHeader.StartsWith("Bearer "))
+                    return;
+
+                var token = authHeader["Bearer ".Length..].Trim();
+
+                var db = context.HttpContext.RequestServices
+                    .GetRequiredService<eKnjigaDbContext>();
+
+                var isRevoked = await db.RevokedTokens
+                    .AnyAsync(x => x.Token == token);
+
+                if (isRevoked)
+                    context.Fail("Token je odjavljen.");
+            }
+        };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -72,13 +126,13 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.AddSecurityDefinition("BasicAuthentication", new OpenApiSecurityScheme
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
+        Description = "Unesi JWT token u formatu: Bearer {token}",
         Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "basic",
         In = ParameterLocation.Header,
-        Description = "Basic Authorization header using the Basic scheme."
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -89,21 +143,25 @@ builder.Services.AddSwaggerGen(c =>
                 Reference = new OpenApiReference
                 {
                     Type = ReferenceType.SecurityScheme,
-                    Id = "BasicAuthentication"
+                    Id = "Bearer"
                 }
             },
-            new string[] { }
+            Array.Empty<string>()
         }
     });
 });
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("FrontendPolicy", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy
+            .WithOrigins(
+                "http://localhost",
+                "https://localhost"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
@@ -139,8 +197,7 @@ if (!Directory.Exists(webRootPath))
     Directory.CreateDirectory(webRootPath);
 }
 
-// CORS mora ići prije static files da bi slike radile i u Chrome-u
-app.UseCors("AllowAll");
+app.UseCors("FrontendPolicy");
 
 app.UseStaticFiles(new StaticFileOptions
 {
@@ -151,7 +208,6 @@ app.UseStaticFiles(new StaticFileOptions
         var headers = ctx.Context.Response.Headers;
 
         headers["Cache-Control"] = "no-cache";
-        headers["Access-Control-Allow-Origin"] = "*";
 
         var ext = Path.GetExtension(ctx.File.Name).ToLowerInvariant();
         if (ext == ".png")

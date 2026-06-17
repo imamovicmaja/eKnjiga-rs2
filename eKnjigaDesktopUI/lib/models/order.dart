@@ -7,6 +7,9 @@ class OrderResponse {
   final int type;
   final DateTime createdAt;
   final UserResponse? user;
+  final String? statusChangedByName;
+  final DateTime? statusChangedAt;
+  final String? cancellationReason;
   final List<OrderItemResponse> orderItems;
 
   OrderResponse({
@@ -18,6 +21,9 @@ class OrderResponse {
     required this.type,
     required this.createdAt,
     required this.user,
+    this.statusChangedByName,
+    this.statusChangedAt,
+    this.cancellationReason,
     required this.orderItems,
   });
 
@@ -26,14 +32,21 @@ class OrderResponse {
       id: json['id'],
       orderDate: DateTime.parse(json['orderDate']),
       totalPrice: (json['totalPrice'] as num).toDouble(),
-      orderStatus: json['orderStatus'],      
-      paymentStatus: json['paymentStatus'],  
-      type: json['type'],                    
+      orderStatus: json['orderStatus'],
+      paymentStatus: json['paymentStatus'],
+      type: json['type'],
       createdAt: DateTime.parse(json['createdAt']),
       user: json['user'] != null ? UserResponse.fromJson(json['user']) : null,
-      orderItems: (json['orderItems'] as List<dynamic>)
-          .map((e) => OrderItemResponse.fromJson(e))
-          .toList(),
+      statusChangedByName: json['statusChangedByName'],
+      statusChangedAt:
+          json['statusChangedAt'] != null
+              ? DateTime.parse(json['statusChangedAt'])
+              : null,
+      cancellationReason: json['cancellationReason'],
+      orderItems:
+          (json['orderItems'] as List<dynamic>)
+              .map((e) => OrderItemResponse.fromJson(e))
+              .toList(),
     );
   }
 }
@@ -58,8 +71,7 @@ class OrderItemResponse {
   factory OrderItemResponse.fromJson(Map<String, dynamic> json) {
     return OrderItemResponse(
       id: json['id'],
-      book:
-          json['book'] != null ? BookResponse.fromJson(json['book']) : null,
+      book: json['book'] != null ? BookResponse.fromJson(json['book']) : null,
       quantity: json['quantity'],
       unitPrice: (json['unitPrice'] as num).toDouble(),
       isPdfPurchase: json['isPdfPurchase'] ?? false,

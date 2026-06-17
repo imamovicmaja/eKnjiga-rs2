@@ -62,7 +62,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 1,
                             BirthDate = new DateTime(1975, 4, 12, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2256),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6890),
                             Description = "Autor stručnih knjiga o C# jeziku i .NET platformi (npr. 'Uvod u C#', 'C# Napredne teme').",
                             FirstName = "Marko",
                             LastName = "Maric"
@@ -71,7 +71,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 2,
                             BirthDate = new DateTime(1982, 11, 5, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2260),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6894),
                             Description = "Piše romane i laganu književnost, uključujući ljubavne i SF teme (npr. 'Ljetne noći', 'Zvjezdani Put').",
                             FirstName = "Jana",
                             LastName = "Jovic"
@@ -80,7 +80,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 3,
                             BirthDate = new DateTime(1970, 1, 30, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2261),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6895),
                             Description = "Specijalizovana za web razvoj i ASP.NET Core, autor knjiga poput 'ASP.NET Core za početnike' i 'ASP.NET Core Praksa'.",
                             FirstName = "Elma",
                             LastName = "Hadžibegić"
@@ -89,7 +89,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 4,
                             BirthDate = new DateTime(1988, 6, 18, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2263),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6896),
                             Description = "Piše prozu inspirisanu Mostarom i Hercegovinom (npr. 'Tajna starog mosta', 'Mostarske priče').",
                             FirstName = "Amir",
                             LastName = "Mehić"
@@ -98,7 +98,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 5,
                             BirthDate = new DateTime(1979, 3, 9, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2265),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6898),
                             Description = "Autorica romantičnih i emotivnih priča, suautor na naslovima poput 'Zvjezdani Put'.",
                             FirstName = "Sara",
                             LastName = "Kovač"
@@ -107,7 +107,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 6,
                             BirthDate = new DateTime(1985, 9, 2, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2266),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6899),
                             Description = "Suautor naprednih priručnika za C# (npr. 'C# Napredne teme'), fokus na generike i napredne obrasce.",
                             FirstName = "Ivona",
                             LastName = "Ristić"
@@ -116,7 +116,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 7,
                             BirthDate = new DateTime(1976, 2, 17, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2267),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6900),
                             Description = "Pisac krimi romana, poznat po napetim pričama kao što je 'Krimi ulice'.",
                             FirstName = "Petar",
                             LastName = "Marić"
@@ -125,7 +125,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 8,
                             BirthDate = new DateTime(1969, 7, 21, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2269),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6902),
                             Description = "Autor knjiga iz oblasti ekonomije, uključujući naslov 'Uvod u ekonomiju'.",
                             FirstName = "Nikola",
                             LastName = "Ilić"
@@ -134,7 +134,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 9,
                             BirthDate = new DateTime(1980, 12, 3, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2270),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6903),
                             Description = "Specijalizovana za biografije inovatora i preduzetnika (npr. 'Biografija inovatora').",
                             FirstName = "Ana",
                             LastName = "Horvat"
@@ -143,7 +143,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 10,
                             BirthDate = new DateTime(1983, 5, 11, 0, 0, 0, 0, DateTimeKind.Unspecified),
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2272),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6904),
                             Description = "Piše krimi romane smještene u Hercegovinu, poput 'Zločin na Neretvi'.",
                             FirstName = "Tanja",
                             LastName = "Zelić"
@@ -194,7 +194,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2298),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6935),
                             Description = "Osnovni priručnik za C# programiranje.",
                             Name = "Uvod u C#",
                             Price = 29.989999999999998,
@@ -204,7 +204,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 2,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2309),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6939),
                             Description = "Ljubavni roman za ljeto.",
                             Name = "Ljetne noći",
                             Price = 14.99,
@@ -214,7 +214,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 3,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2311),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6940),
                             Description = "Detaljan vodič kroz razvoj web aplikacija koristeći ASP.NET Core.",
                             Name = "ASP.NET Core za početnike",
                             Price = 34.990000000000002,
@@ -224,7 +224,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 4,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2312),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6942),
                             Description = "Historijska drama smještena u Mostaru.",
                             Name = "Tajna starog mosta",
                             Price = 19.989999999999998,
@@ -234,7 +234,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 5,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2314),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6943),
                             Description = "Naučna fantastika s elementima drame.",
                             Name = "Zvjezdani Put",
                             Price = 24.989999999999998,
@@ -244,7 +244,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 6,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2316),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6945),
                             Description = "Generici, LINQ, EF Core i napredni obrasci.",
                             Name = "C# Napredne teme",
                             Price = 39.990000000000002,
@@ -254,7 +254,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 7,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2317),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6946),
                             Description = "Kratke priče inspirisane Hercegovinom.",
                             Name = "Mostarske priče",
                             Price = 12.49,
@@ -264,7 +264,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 8,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2319),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6948),
                             Description = "Napeti krimi roman.",
                             Name = "Krimi ulice",
                             Price = 21.5,
@@ -274,7 +274,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 9,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2320),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6949),
                             Description = "Osnove mikro i makroekonomije.",
                             Name = "Uvod u ekonomiju",
                             Price = 17.899999999999999,
@@ -284,7 +284,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 10,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2322),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6951),
                             Description = "Put od ideje do proizvoda.",
                             Name = "Biografija inovatora",
                             Price = 18.989999999999998,
@@ -294,7 +294,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 11,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2323),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6952),
                             Description = "Praktični primjeri, API, identity i deploy.",
                             Name = "ASP.NET Core Praksa",
                             Price = 36.0,
@@ -304,7 +304,7 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 12,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2325),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6954),
                             Description = "Kriminalistički roman smješten u Mostar.",
                             Name = "Zločin na Neretvi",
                             Price = 22.0,
@@ -511,37 +511,37 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2229),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6862),
                             Name = "Programiranje"
                         },
                         new
                         {
                             Id = 2,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2231),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6864),
                             Name = "Roman"
                         },
                         new
                         {
                             Id = 3,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2231),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6865),
                             Name = "Naučna fantastika"
                         },
                         new
                         {
                             Id = 4,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2232),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6866),
                             Name = "Biografija"
                         },
                         new
                         {
                             Id = 5,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2233),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6866),
                             Name = "Ekonomija"
                         },
                         new
                         {
                             Id = 6,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2234),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6867),
                             Name = "Krimi"
                         });
                 });
@@ -579,7 +579,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 1,
                             CountryId = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2103),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6737),
                             Name = "Sarajevo",
                             ZipCode = 71000
                         },
@@ -587,7 +587,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 2,
                             CountryId = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2105),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6738),
                             Name = "Mostar",
                             ZipCode = 88000
                         },
@@ -595,7 +595,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 3,
                             CountryId = 2,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2106),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6739),
                             Name = "Zagreb",
                             ZipCode = 10000
                         },
@@ -603,7 +603,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 4,
                             CountryId = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2107),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6740),
                             Name = "Banja Luka",
                             ZipCode = 78000
                         },
@@ -611,7 +611,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 5,
                             CountryId = 1,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2107),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6740),
                             Name = "Tuzla",
                             ZipCode = 75000
                         },
@@ -619,7 +619,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 6,
                             CountryId = 2,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2108),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6741),
                             Name = "Split",
                             ZipCode = 21000
                         },
@@ -627,7 +627,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 7,
                             CountryId = 3,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2109),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6742),
                             Name = "Beograd",
                             ZipCode = 11000
                         },
@@ -635,7 +635,7 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 8,
                             CountryId = 4,
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(2110),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6743),
                             Name = "Ljubljana",
                             ZipCode = 1000
                         });
@@ -1213,29 +1213,92 @@ namespace eKnjiga.Services.Migrations
                         {
                             Id = 1,
                             Code = "BA",
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(1893),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6473),
                             Name = "Bosna i Hercegovina"
                         },
                         new
                         {
                             Id = 2,
                             Code = "HR",
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(1896),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6476),
                             Name = "Hrvatska"
                         },
                         new
                         {
                             Id = 3,
                             Code = "RS",
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(1897),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6476),
                             Name = "Srbija"
                         },
                         new
                         {
                             Id = 4,
                             Code = "SI",
-                            CreatedAt = new DateTime(2026, 4, 1, 13, 36, 44, 467, DateTimeKind.Utc).AddTicks(1898),
+                            CreatedAt = new DateTime(2026, 6, 17, 19, 43, 39, 226, DateTimeKind.Utc).AddTicks(6477),
                             Name = "Slovenija"
+                        });
+                });
+
+            modelBuilder.Entity("eKnjiga.Services.Database.Notification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Notifications");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            CreatedAt = new DateTime(2026, 3, 25, 12, 5, 0, 0, DateTimeKind.Unspecified),
+                            IsRead = false,
+                            Text = "Vaša narudžba #1 je uspješno kreirana.",
+                            Title = "Narudžba kreirana",
+                            UserId = 2
+                        },
+                        new
+                        {
+                            Id = 2,
+                            CreatedAt = new DateTime(2026, 3, 25, 12, 10, 0, 0, DateTimeKind.Unspecified),
+                            IsRead = true,
+                            Text = "Plaćanje za narudžbu #1 je uspješno evidentirano.",
+                            Title = "Plaćanje uspješno",
+                            UserId = 2
+                        },
+                        new
+                        {
+                            Id = 3,
+                            CreatedAt = new DateTime(2026, 2, 27, 12, 0, 0, 0, DateTimeKind.Unspecified),
+                            IsRead = false,
+                            Text = "Vaša narudžba #8 je otkazana zbog isteka roka za plaćanje.",
+                            Title = "Narudžba otkazana",
+                            UserId = 8
                         });
                 });
 
@@ -1246,6 +1309,10 @@ namespace eKnjiga.Services.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -1273,6 +1340,12 @@ namespace eKnjiga.Services.Migrations
                     b.Property<bool?>("PaypalSandbox")
                         .HasColumnType("bit");
 
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("StatusChangedByUserId")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("TotalPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
@@ -1284,6 +1357,8 @@ namespace eKnjiga.Services.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("StatusChangedByUserId");
 
                     b.HasIndex("UserId");
 
@@ -1372,11 +1447,14 @@ namespace eKnjiga.Services.Migrations
                         new
                         {
                             Id = 8,
+                            CancellationReason = "Istekao rok za placanje.",
                             CreatedAt = new DateTime(2026, 2, 20, 12, 0, 0, 0, DateTimeKind.Unspecified),
                             ExpiresAt = new DateTime(2026, 2, 27, 12, 0, 0, 0, DateTimeKind.Unspecified),
                             OrderDate = new DateTime(2026, 2, 20, 12, 0, 0, 0, DateTimeKind.Unspecified),
                             OrderStatus = 3,
                             PaymentStatus = 0,
+                            StatusChangedAt = new DateTime(2026, 2, 27, 12, 0, 0, 0, DateTimeKind.Unspecified),
+                            StatusChangedByUserId = 1,
                             TotalPrice = 34.00m,
                             Type = 0,
                             UserId = 8
@@ -1897,6 +1975,29 @@ namespace eKnjiga.Services.Migrations
                             Rating = 4.0,
                             UserId = 4
                         });
+                });
+
+            modelBuilder.Entity("eKnjiga.Services.Database.RevokedToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("RevokedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("RevokedTokens");
                 });
 
             modelBuilder.Entity("eKnjiga.Services.Database.Role", b =>
@@ -2454,13 +2555,31 @@ namespace eKnjiga.Services.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("eKnjiga.Services.Database.Notification", b =>
+                {
+                    b.HasOne("eKnjiga.Services.Database.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("eKnjiga.Services.Database.Order", b =>
                 {
+                    b.HasOne("eKnjiga.Services.Database.User", "StatusChangedByUser")
+                        .WithMany()
+                        .HasForeignKey("StatusChangedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("eKnjiga.Services.Database.User", "User")
                         .WithMany("Orders")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("StatusChangedByUser");
 
                     b.Navigation("User");
                 });

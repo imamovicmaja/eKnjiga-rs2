@@ -1,31 +1,31 @@
+using eKnjiga.Model.Constants;
 using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
+using eKnjiga.Services.Exceptions;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
 using System.Security.Claims;
-using System.Threading.Tasks;
+
 
 namespace eKnjiga.Services
 {
     public class OrderService : BaseCRUDService<OrderResponse, OrderSearchObject, Database.Order, OrderUpsertRequest, OrderUpdateRequest>, IOrderService
     {
         private readonly IHttpContextAccessor _httpContextAccessor;
-
+        private readonly INotificationService _notificationService;
         public OrderService(
             eKnjigaDbContext context,
             IMapper mapper,
-            IHttpContextAccessor httpContextAccessor)
+            IHttpContextAccessor httpContextAccessor,
+            INotificationService notificationService)
             : base(context, mapper)
         {
             _httpContextAccessor = httpContextAccessor;
+            _notificationService = notificationService;
         }
 
         private int? GetCurrentUserId()
@@ -50,10 +50,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private bool IsEmployee()
@@ -63,10 +63,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Employee") ||
+            return user.IsInRole(RoleNames.Employee) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Employee");
+                       c.Value == RoleNames.Employee);
         }
 
         private bool IsStaff()
@@ -92,6 +92,102 @@ namespace eKnjiga.Services
 
             if (order.UserId != currentUserId.Value)
                 throw new UnauthorizedAccessException("You are not allowed to access this order.");
+        }
+
+        private void EnsureStaff()
+        {
+            if (!IsStaff())
+                throw new UnauthorizedAccessException("Samo administrator ili uposlenik može mijenjati status narudžbe.");
+        }
+
+        private void ValidateOrderStatusTransition(OrderStatus current, OrderStatus next)
+        {
+            if (current == next)
+                return;
+
+            if (current == OrderStatus.Completed || current == OrderStatus.Cancelled)
+            {
+                throw new UserException(
+                    $"Status '{current}' je završni status i ne može se mijenjati.",
+                    400
+                );
+            }
+
+            if ((int)next < (int)current)
+            {
+                throw new UserException(
+                    $"Promjena statusa iz '{current}' u '{next}' nije dozvoljena.",
+                    400
+                );
+            }
+        }
+
+        private void ValidatePaymentStatusTransition(PaymentStatus current, PaymentStatus next)
+        {
+            if (current == next)
+                return;
+
+            var allowed = current switch
+            {
+                PaymentStatus.Unpaid =>
+                    next == PaymentStatus.Pending ||
+                    next == PaymentStatus.Paid ||
+                    next == PaymentStatus.Failed,
+
+                PaymentStatus.Pending =>
+                    next == PaymentStatus.Paid ||
+                    next == PaymentStatus.Failed,
+
+                PaymentStatus.Paid =>
+                    next == PaymentStatus.Refunded,
+
+                PaymentStatus.Refunded => false,
+                PaymentStatus.Failed => false,
+
+                _ => false
+            };
+
+            if (!allowed)
+            {
+                throw new UserException(
+                    $"Promjena statusa plaćanja iz '{current}' u '{next}' nije dozvoljena.",
+                    400
+                );
+            }
+        }
+
+        private async Task AddPdfBooksToUserBooksAsync(Order entity)
+        {
+            if (entity.Type != OrderType.Purchase)
+                return;
+
+            if (entity.PaymentStatus != PaymentStatus.Paid)
+                return;
+
+            var bookIds = entity.OrderItems
+                .Where(oi => oi.IsPdfPurchase)
+                .Select(oi => oi.BookId)
+                .Distinct()
+                .ToList();
+
+            if (!bookIds.Any())
+                return;
+
+            var existing = await _context.UserBooks
+                .Where(ub => ub.UserId == entity.UserId && bookIds.Contains(ub.BookId))
+                .Select(ub => ub.BookId)
+                .ToListAsync();
+
+            var toAdd = bookIds.Except(existing);
+
+            foreach (var bookId in toAdd)
+            {
+                _context.UserBooks.Add(new UserBook
+                {
+                    UserId = entity.UserId,
+                    BookId = bookId
+                });
+            }
         }
 
         private async Task ValidatePdfPurchaseAsync(OrderUpsertRequest request, int userId)
@@ -137,6 +233,9 @@ namespace eKnjiga.Services
             if (search.OrderStatus.HasValue)
                 query = query.Where(o => o.OrderStatus == search.OrderStatus.Value);
 
+            if (search.ExcludeCompleted == true)
+                query = query.Where(o => o.OrderStatus != OrderStatus.Completed);
+
             if (search.PaymentStatus.HasValue)
                 query = query.Where(o => o.PaymentStatus == search.PaymentStatus.Value);
 
@@ -154,6 +253,7 @@ namespace eKnjiga.Services
                         .ThenInclude(cc => cc.Country)
                 .Include(o => o.User)
                     .ThenInclude(ur => ur.Role)
+                .Include(o => o.StatusChangedByUser)
                 .Include(o => o.OrderItems)
                     .ThenInclude(oi => oi.Book)
                         .ThenInclude(b => b.BookAuthors)
@@ -186,7 +286,6 @@ namespace eKnjiga.Services
                     OrderBy = search.OrderBy,
                     IsDescending = search.IsDescending,
                     IncludeTotalCount = search.IncludeTotalCount,
-                    RetrieveAll = search.RetrieveAll,
                     Page = search.Page,
                     PageSize = search.PageSize
                 };
@@ -234,18 +333,12 @@ namespace eKnjiga.Services
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
 
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 
@@ -264,6 +357,7 @@ namespace eKnjiga.Services
                         .ThenInclude(cc => cc.Country)
                 .Include(o => o.User)
                     .ThenInclude(ur => ur.Role)
+                .Include(o => o.StatusChangedByUser)
                 .Include(o => o.OrderItems)
                     .ThenInclude(oi => oi.Book)
                         .ThenInclude(b => b.BookAuthors)
@@ -282,29 +376,6 @@ namespace eKnjiga.Services
             return MapToResponse(order);
         }
 
-        protected override async Task BeforeInsert(Order entity, OrderUpsertRequest request)
-        {
-            if (!IsStaff())
-            {
-                var currentUserId = GetCurrentUserId();
-
-                if (!currentUserId.HasValue)
-                    throw new UnauthorizedAccessException("User is not authenticated.");
-
-                request.UserId = currentUserId.Value;
-            }
-
-            entity.OrderItems = request.OrderItems.Select(item => new OrderItem
-            {
-                BookId = item.BookId,
-                Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice,
-                IsPdfPurchase = item.IsPdfPurchase
-            }).ToList();
-
-            await Task.CompletedTask;
-        }
-
         private OrderResponse MapToResponse(Database.Order order)
         {
             return new OrderResponse
@@ -317,6 +388,12 @@ namespace eKnjiga.Services
                 Type = order.Type,
                 CreatedAt = order.CreatedAt,
                 ExpiresAt = order.ExpiresAt,
+                StatusChangedByName =
+                order.StatusChangedByUser != null
+                    ? $"{order.StatusChangedByUser.FirstName} {order.StatusChangedByUser.LastName}"
+                    : null,
+                StatusChangedAt = order.StatusChangedAt,
+                CancellationReason = order.CancellationReason,
 
                 User = order.User != null ? new UserResponse
                 {
@@ -383,118 +460,140 @@ namespace eKnjiga.Services
         {
             EnsureUserAuthenticated();
 
-            if (!IsStaff())
+            var currentUserId = GetCurrentUserId()!.Value;
+
+            if (request.OrderItems == null || !request.OrderItems.Any())
+                throw new InvalidOperationException("Narudžba mora sadržavati barem jednu knjigu.");
+
+            await ValidatePdfPurchaseAsync(request, currentUserId);
+
+            var bookIds = request.OrderItems
+                .Select(x => x.BookId)
+                .Distinct()
+                .ToList();
+
+            var books = await _context.Books
+                .Where(x => bookIds.Contains(x.Id))
+                .ToListAsync();
+
+            if (books.Count != bookIds.Count)
+                throw new InvalidOperationException("Jedna ili više knjiga ne postoji.");
+
+            var now = DateTime.UtcNow;
+
+            var entity = new Order
             {
-                var currentUserId = GetCurrentUserId()!.Value;
-                request.UserId = currentUserId;
-            }
+                UserId = currentUserId,
+                OrderDate = now,
+                CreatedAt = now,
+                Type = request.Type,
+                OrderStatus = OrderStatus.Pending,
+                PaymentStatus = PaymentStatus.Unpaid,
+                ExpiresAt = request.Type == OrderType.Purchase
+                    ? now.AddDays(7)
+                    : now.AddDays(2),
+                OrderItems = request.OrderItems.Select(item =>
+                {
+                    var book = books.First(x => x.Id == item.BookId);
 
-            await ValidatePdfPurchaseAsync(request, request.UserId);
+                    return new OrderItem
+                    {
+                        BookId = item.BookId,
+                        Quantity = item.Quantity,
+                        UnitPrice = (decimal)book.Price,
+                        IsPdfPurchase = item.IsPdfPurchase
+                    };
+                }).ToList()
+            };
 
-            var entity = new Order();
-            MapInsertToEntity(entity, request);
-
-            entity.CreatedAt = DateTime.UtcNow;
-
-            if (entity.Type == OrderType.Purchase)
-            {
-                entity.ExpiresAt = DateTime.UtcNow.AddDays(7);
-            }
-            else if (entity.Type == OrderType.Reservation)
-            {
-                entity.ExpiresAt = DateTime.UtcNow.AddDays(2);
-            }
-
-            entity.OrderItems = request.OrderItems.Select(item => new OrderItem
-            {
-                BookId = item.BookId,
-                Quantity = item.Quantity,
-                UnitPrice = item.UnitPrice,
-                IsPdfPurchase = item.IsPdfPurchase
-            }).ToList();
+            entity.TotalPrice = entity.OrderItems
+                .Sum(x => x.UnitPrice * x.Quantity);
 
             _context.Orders.Add(entity);
 
-            if (entity.OrderStatus == OrderStatus.Completed && entity.Type == OrderType.Purchase)
-            {
-                var bookIds = entity.OrderItems
-                    .Where(oi => oi.IsPdfPurchase)
-                    .Select(oi => oi.BookId)
-                    .Distinct()
-                    .ToList();
-
-                var existing = await _context.UserBooks
-                    .Where(ub => ub.UserId == entity.UserId && bookIds.Contains(ub.BookId))
-                    .Select(ub => ub.BookId)
-                    .ToListAsync();
-
-                var toAdd = bookIds.Except(existing);
-
-                foreach (var bookId in toAdd)
-                {
-                    _context.UserBooks.Add(new UserBook
-                    {
-                        UserId = entity.UserId,
-                        BookId = bookId
-                    });
-                }
-            }
-
             await _context.SaveChangesAsync();
 
+            await _notificationService.CreateAsync(
+                entity.UserId,
+                entity.Type == OrderType.Reservation
+                ? "Rezervacija"
+                : "Narudžba",
+                entity.Type == OrderType.Reservation
+                ? "Vaša rezervacija je uspješno kreirana."
+                : "Vaša narudžba je uspješno kreirana."
+                ); 
+
             var full = await GetByIdAsync(entity.Id);
+
             return full ?? MapToResponse(entity);
+
         }
 
         public override async Task<OrderResponse?> UpdateAsync(int id, OrderUpdateRequest request)
         {
             EnsureUserAuthenticated();
+            EnsureStaff();
 
-            var entity = await _context.Orders.FindAsync(id);
+            var entity = await _context.Orders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.Id == id);
+
             if (entity == null)
                 throw new KeyNotFoundException("Order not found.");
 
-            EnsureCanAccessOrder(entity);
-
-            await _context.Entry(entity).Collection(e => e.OrderItems).LoadAsync();
-
-            var wasCompleted = entity.OrderStatus == OrderStatus.Completed;
-
+            var oldStatus = entity.OrderStatus;
             var oldPaymentStatus = entity.PaymentStatus;
-            await BeforeUpdate(entity, request);
-            MapUpdateToEntity(entity, request);
-            entity.PaymentStatus = oldPaymentStatus;
 
-            await _context.SaveChangesAsync();
+            ValidateOrderStatusTransition(oldStatus, request.OrderStatus);
+            ValidatePaymentStatusTransition(oldPaymentStatus, request.PaymentStatus);
 
-            if (!wasCompleted &&
-                entity.OrderStatus == OrderStatus.Completed &&
-                entity.Type == OrderType.Purchase)
+            if (request.OrderStatus == OrderStatus.Cancelled && string.IsNullOrWhiteSpace(request.Reason))
             {
-                var bookIds = entity.OrderItems
-                    .Where(oi => oi.IsPdfPurchase)
-                    .Select(oi => oi.BookId)
-                    .Distinct()
-                    .ToList();
+                throw new UserException("Razlog otkazivanja je obavezan.", 400);
+            }
 
-                var existing = await _context.UserBooks
-                    .Where(ub => ub.UserId == entity.UserId && bookIds.Contains(ub.BookId))
-                    .Select(ub => ub.BookId)
-                    .ToListAsync();
+            entity.OrderStatus = request.OrderStatus;
+            entity.PaymentStatus = request.PaymentStatus;
 
-                var toAdd = bookIds.Except(existing);
+            entity.StatusChangedByUserId = GetCurrentUserId();
+            entity.StatusChangedAt = DateTime.UtcNow;
 
-                foreach (var bookId in toAdd)
-                {
-                    _context.UserBooks.Add(new UserBook
-                    {
-                        UserId = entity.UserId,
-                        BookId = bookId
-                    });
-                }
+            if (request.OrderStatus == OrderStatus.Cancelled)
+            {
+                entity.CancellationReason = request.Reason;
+            }
+
+            if (oldStatus != OrderStatus.Completed &&
+                entity.OrderStatus == OrderStatus.Completed)
+            {
+                await AddPdfBooksToUserBooksAsync(entity);
             }
 
             await _context.SaveChangesAsync();
+
+            if (oldStatus != entity.OrderStatus)
+            {
+                string message;
+
+                if (entity.OrderStatus == OrderStatus.Cancelled)
+                {
+                    message =
+                        $"Vaša narudžba je odbijena. Razlog: {entity.CancellationReason}";
+                }
+                else
+                {
+                    message =
+                        $"Status vaše narudžbe je promijenjen u {entity.OrderStatus}.";
+                }
+
+                await _notificationService.CreateAsync(
+                    entity.UserId,
+                    entity.Type == OrderType.Reservation
+                        ? "Rezervacija"
+                        : "Narudžba",
+                    message
+                );
+            }
 
             var full = await GetByIdAsync(entity.Id);
             return full ?? MapToResponse(entity);
@@ -544,7 +643,64 @@ namespace eKnjiga.Services
 
             await _context.SaveChangesAsync();
 
+            await _notificationService.CreateAsync(
+                entity.UserId,
+                entity.Type == OrderType.Reservation
+                    ? "Rezervacija"
+                    : "Narudžba",
+                entity.Type == OrderType.Reservation
+                    ? "Vaša rezervacija je otkazana."
+                    : "Vaša narudžba je otkazana."
+            );
+
             return await GetByIdAsync(id);
+        }
+
+        public async Task<OrderReportResponse> GetReportAsync(OrderReportRequest request)
+        {
+            request ??= new OrderReportRequest();
+
+            var query = _context.Orders.AsQueryable();
+
+            if (request.DateFrom.HasValue)
+                query = query.Where(o => o.OrderDate >= request.DateFrom.Value);
+
+            if (request.DateTo.HasValue)
+                query = query.Where(o => o.OrderDate <= request.DateTo.Value);
+
+            return new OrderReportResponse
+            {
+                TotalOrders = await query.CountAsync(),
+
+                CompletedOrders = await query.CountAsync(o =>
+                    o.OrderStatus == OrderStatus.Completed),
+
+                CancelledOrders = await query.CountAsync(o =>
+                    o.OrderStatus == OrderStatus.Cancelled),
+
+                PaidOrders = await query.CountAsync(o =>
+                    o.PaymentStatus == PaymentStatus.Paid),
+
+                PurchaseOrders = await query.CountAsync(o =>
+                    o.Type == OrderType.Purchase),
+
+                ReservationOrders = await query.CountAsync(o =>
+                    o.Type == OrderType.Reservation),
+
+                PdfPurchases = await query
+                    .SelectMany(o => o.OrderItems)
+                    .Where(i => i.IsPdfPurchase)
+                    .SumAsync(i => (int?)i.Quantity) ?? 0,
+
+                HardcopyPurchases = await query
+                    .SelectMany(o => o.OrderItems)
+                    .Where(i => !i.IsPdfPurchase)
+                    .SumAsync(i => (int?)i.Quantity) ?? 0,
+
+                TotalRevenue = await query
+                    .Where(o => o.PaymentStatus == PaymentStatus.Paid)
+                    .SumAsync(o => (decimal?)o.TotalPrice) ?? 0
+            };
         }
     }
 }

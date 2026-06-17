@@ -10,6 +10,7 @@ import '../models/cart_item.dart';
 import '../models/order.dart';
 import 'checkout_page.dart';
 import '../widgets/book_image.dart';
+import '../utils/confirm_dialog.dart';
 
 class ShopPage extends StatefulWidget {
   const ShopPage({super.key});
@@ -25,20 +26,52 @@ class _ShopPageState extends State<ShopPage> {
   bool _isLoading = true;
   String? _error;
 
+  bool _isLoadingMoreOrders = false;
+  bool _hasMoreOrders = true;
+  int _ordersPage = 1;
+  final int _ordersPageSize = 20;
+
   @override
   void initState() {
     super.initState();
     _loadOrders();
   }
 
-  Future<void> _loadOrders() async {
+  Future<void> _loadOrders({bool reset = true}) async {
+    if (reset) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _ordersPage = 1;
+        _hasMoreOrders = true;
+      });
+    } else {
+      if (!_hasMoreOrders || _isLoadingMoreOrders) return;
+
+      setState(() {
+        _isLoadingMoreOrders = true;
+      });
+    }
+
     try {
-      final orders = await ApiService.fetchOrders();
+      final result = await ApiService.fetchOrdersPaged(
+        page: _ordersPage,
+        pageSize: _ordersPageSize,
+      );
+
       if (!mounted) return;
 
       setState(() {
-        _orders = orders;
+        if (reset) {
+          _orders = result.items;
+        } else {
+          _orders.addAll(result.items);
+        }
+
+        _hasMoreOrders = result.hasMore;
+        _ordersPage++;
         _isLoading = false;
+        _isLoadingMoreOrders = false;
         _error = null;
       });
     } catch (e) {
@@ -47,6 +80,7 @@ class _ShopPageState extends State<ShopPage> {
       setState(() {
         _error = e.toString();
         _isLoading = false;
+        _isLoadingMoreOrders = false;
       });
     }
   }
@@ -64,17 +98,10 @@ class _ShopPageState extends State<ShopPage> {
     try {
       await ApiService.createOrder(
         type: 1,
-        totalPrice: ReservationCart.I.totalPrice,
-        paymentStatus: 0,
-        orderItems: reservationItems
-            .map(
-              (i) => {
-                "bookId": i.bookId,
-                "quantity": i.quantity,
-                "unitPrice": i.price,
-              },
-            )
-            .toList(),
+        orderItems:
+            reservationItems
+                .map((i) => {"bookId": i.bookId, "quantity": i.quantity})
+                .toList(),
       );
 
       ReservationCart.I.clear();
@@ -89,33 +116,22 @@ class _ShopPageState extends State<ShopPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Greška: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Greška: $e')));
     }
   }
 
   Future<void> _cancelOrder(OrderResponse order) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppConfirmDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Otkazivanje'),
-        content: Text(
+      title: order.type == 1 ? 'Otkaži rezervaciju' : 'Otkaži narudžbu',
+      message:
           order.type == 1
               ? 'Da li ste sigurni da želite otkazati ovu rezervaciju?'
               : 'Da li ste sigurni da želite otkazati ovu narudžbu?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Ne'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Da'),
-          ),
-        ],
-      ),
+      confirmText: 'Otkaži',
+      danger: true,
     );
 
     if (confirmed != true) return;
@@ -137,9 +153,7 @@ class _ShopPageState extends State<ShopPage> {
     } catch (e) {
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
   }
 
@@ -230,172 +244,224 @@ class _ShopPageState extends State<ShopPage> {
                   ),
                 ),
                 child: SafeArea(
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _error != null
+                  child:
+                      _isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : _error != null
                           ? Center(child: Text('Greška: $_error'))
                           : ListView(
-                              padding: const EdgeInsets.fromLTRB(0, 10, 0, 10),
-                              children: [
-                                sectionTitle('Moja korpa'),
-                                if (cartItems.isEmpty)
-                                  const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Text('Korpa je prazna'),
-                                  )
-                                else ...[
-                                  ...cartItems.map((item) => _cartItemCard(item)),
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          const Text(
-                                            'Ukupno:',
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            _price(Cart.I.totalPrice),
-                                            style: const TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                            padding: const EdgeInsets.fromLTRB(0, 10, 0, 10),
+                            children: [
+                              sectionTitle('Moja korpa'),
+                              if (cartItems.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Text('Korpa je prazna'),
+                                )
+                              else ...[
+                                ...cartItems.map((item) => _cartItemCard(item)),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    0,
                                   ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
                                     ),
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton(
-                                        onPressed: () async {
-                                          final changed = await Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (_) => CheckoutPage.fromCart(
-                                                items: cartItems,
-                                              ),
-                                            ),
-                                          );
-
-                                          if (changed == true) {
-                                            await _loadOrders();
-                                            setState(() {});
-                                          }
-                                        },
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.black,
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 14,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Ukupno:',
+                                          style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                        child: Text(
-                                          Cart.I.hasPdf
-                                              ? 'Završi kupovinu (online)'
-                                              : 'Završi kupovinu',
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-
-                                sectionTitle('Moje rezervacije'),
-                                if (reservationItems.isEmpty)
-                                  const Padding(
-                                    padding: EdgeInsets.all(16),
-                                    child: Text('Nema knjiga u rezervacijama'),
-                                  )
-                                else ...[
-                                  ...reservationItems
-                                      .map((item) => _reservationItemCard(item)),
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                                    child: Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          const Text(
-                                            'Ukupno:',
-                                            style: TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            _price(ReservationCart.I.totalPrice),
-                                            style: const TextStyle(
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
-                                    ),
-                                    child: SizedBox(
-                                      width: double.infinity,
-                                      child: ElevatedButton(
-                                        onPressed: _confirmReservations,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.black,
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            vertical: 14,
-                                          ),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                        Text(
+                                          _price(Cart.I.totalPrice),
+                                          style: const TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
                                           ),
                                         ),
-                                        child:
-                                            const Text('Potvrdi rezervaciju'),
-                                      ),
+                                      ],
                                     ),
-                                  ),
-                                ],
-
-                                sectionTitle('Moje narudžbe i rezervacije'),
-                                const SizedBox(height: 12),
-                                ..._orders.map(
-                                  (order) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 12),
-                                    child: _orderItem(order),
                                   ),
                                 ),
-                                const SizedBox(height: 10),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: () async {
+                                        final changed = await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder:
+                                                (_) => CheckoutPage.fromCart(
+                                                  items: cartItems,
+                                                ),
+                                          ),
+                                        );
+
+                                        if (changed == true) {
+                                          await _loadOrders();
+                                          setState(() {});
+                                        }
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.black,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        Cart.I.hasPdf
+                                            ? 'Završi kupovinu (online)'
+                                            : 'Završi kupovinu',
+                                      ),
+                                    ),
+                                  ),
+                                ),
                               ],
-                            ),
+
+                              sectionTitle('Moje rezervacije'),
+                              if (reservationItems.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(16),
+                                  child: Text('Nema knjiga u rezervacijama'),
+                                )
+                              else ...[
+                                ...reservationItems.map(
+                                  (item) => _reservationItemCard(item),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    0,
+                                  ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text(
+                                          'Ukupno:',
+                                          style: TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        Text(
+                                          _price(ReservationCart.I.totalPrice),
+                                          style: const TextStyle(
+                                            fontSize: 17,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton(
+                                      onPressed: () async {
+                                        final confirmed =
+                                            await showAppConfirmDialog(
+                                              context: context,
+                                              title: 'Potvrda rezervacije',
+                                              message:
+                                                  'Potvrdom će rezervacija biti kreirana i knjige će biti rezervisane za preuzimanje u poslovnici.',
+                                              confirmText: 'Potvrdi',
+                                            );
+
+                                        if (!confirmed) return;
+
+                                        await _confirmReservations();
+                                      },
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.black,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                          vertical: 14,
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text('Potvrdi rezervaciju'),
+                                    ),
+                                  ),
+                                ),
+                              ],
+
+                              sectionTitle('Moje narudžbe i rezervacije'),
+                              const SizedBox(height: 12),
+                              ..._orders.map(
+                                (order) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: _orderItem(order),
+                                ),
+                              ),
+                              if (_hasMoreOrders)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 4,
+                                    bottom: 16,
+                                  ),
+                                  child: Center(
+                                    child: InkWell(
+                                      onTap:
+                                          _isLoadingMoreOrders
+                                              ? null
+                                              : () => _loadOrders(reset: false),
+                                      child: Text(
+                                        _isLoadingMoreOrders
+                                            ? 'Učitavanje...'
+                                            : 'Učitaj još',
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
+                            ],
+                          ),
                 ),
               ),
               bottomNavigationBar: BottomNavigationBar(
@@ -411,13 +477,17 @@ class _ShopPageState extends State<ShopPage> {
                     case 0:
                       Navigator.pushReplacement(
                         context,
-                        MaterialPageRoute(builder: (context) => const HomePage()),
+                        MaterialPageRoute(
+                          builder: (context) => const HomePage(),
+                        ),
                       );
                       break;
                     case 1:
                       Navigator.pushReplacement(
                         context,
-                        MaterialPageRoute(builder: (context) => const BookPage()),
+                        MaterialPageRoute(
+                          builder: (context) => const BookPage(),
+                        ),
                       );
                       break;
                     case 2:
@@ -498,17 +568,17 @@ class _ShopPageState extends State<ShopPage> {
             children: [
               imageUrl.isNotEmpty
                   ? BookImage(
-                      url: imageUrl,
-                      width: 78,
-                      height: 108,
-                      borderRadius: 12,
-                    )
+                    url: imageUrl,
+                    width: 78,
+                    height: 108,
+                    borderRadius: 12,
+                  )
                   : Container(
-                      width: 78,
-                      height: 108,
-                      color: Colors.grey.shade200,
-                      child: const Icon(Icons.book),
-                    ),
+                    width: 78,
+                    height: 108,
+                    color: Colors.grey.shade200,
+                    child: const Icon(Icons.book),
+                  ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -551,7 +621,19 @@ class _ShopPageState extends State<ShopPage> {
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () => setState(() => Cart.I.remove(item)),
+                onPressed: () async {
+                  final confirmed = await showAppConfirmDialog(
+                    context: context,
+                    title: 'Ukloni iz korpe',
+                    message: 'Da li želite ukloniti ovu knjigu iz korpe?',
+                    confirmText: 'Ukloni',
+                    danger: true,
+                  );
+
+                  if (!confirmed) return;
+
+                  setState(() => Cart.I.remove(item));
+                },
               ),
             ],
           ),
@@ -567,7 +649,10 @@ class _ShopPageState extends State<ShopPage> {
                   child: Row(
                     children: [
                       IconButton(
-                        onPressed: () => setState(() => Cart.I.decrease(item)),
+                        onPressed:
+                            item.quantity <= 1
+                                ? null
+                                : () => setState(() => Cart.I.decrease(item)),
                         icon: const Icon(Icons.remove, size: 18),
                       ),
                       Text(
@@ -633,17 +718,17 @@ class _ShopPageState extends State<ShopPage> {
             children: [
               imageUrl.isNotEmpty
                   ? BookImage(
-                      url: imageUrl,
-                      width: 78,
-                      height: 108,
-                      borderRadius: 12,
-                    )
+                    url: imageUrl,
+                    width: 78,
+                    height: 108,
+                    borderRadius: 12,
+                  )
                   : Container(
-                      width: 78,
-                      height: 108,
-                      color: Colors.grey.shade200,
-                      child: const Icon(Icons.book),
-                    ),
+                    width: 78,
+                    height: 108,
+                    color: Colors.grey.shade200,
+                    child: const Icon(Icons.book),
+                  ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -665,17 +750,25 @@ class _ShopPageState extends State<ShopPage> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    const Text(
-                      'Rezervacija',
-                      style: TextStyle(fontSize: 13),
-                    ),
+                    const Text('Rezervacija', style: TextStyle(fontSize: 13)),
                   ],
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.red),
-                onPressed: () =>
-                    setState(() => ReservationCart.I.remove(item)),
+                onPressed: () async {
+                  final confirmed = await showAppConfirmDialog(
+                    context: context,
+                    title: 'Ukloni iz rezervacija',
+                    message: 'Da li želite ukloniti ovu knjigu iz rezervacija?',
+                    confirmText: 'Ukloni',
+                    danger: true,
+                  );
+
+                  if (!confirmed) return;
+
+                  setState(() => ReservationCart.I.remove(item));
+                },
               ),
             ],
           ),
@@ -690,8 +783,12 @@ class _ShopPageState extends State<ShopPage> {
                 child: Row(
                   children: [
                     IconButton(
-                      onPressed: () =>
-                          setState(() => ReservationCart.I.decrease(item)),
+                      onPressed:
+                          item.quantity <= 1
+                              ? null
+                              : () => setState(
+                                () => ReservationCart.I.decrease(item),
+                              ),
                       icon: const Icon(Icons.remove, size: 18),
                     ),
                     Text(
@@ -702,8 +799,9 @@ class _ShopPageState extends State<ShopPage> {
                       ),
                     ),
                     IconButton(
-                      onPressed: () =>
-                          setState(() => ReservationCart.I.increase(item)),
+                      onPressed:
+                          () =>
+                              setState(() => ReservationCart.I.increase(item)),
                       icon: const Icon(Icons.add, size: 18),
                     ),
                   ],
@@ -820,10 +918,7 @@ class _ShopPageState extends State<ShopPage> {
             else if (order.paymentStatus == 2)
               const Text(
                 'Online plaćene narudžbe nije moguće otkazati putem aplikacije.',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: Colors.black54,
-                ),
+                style: TextStyle(fontSize: 12.5, color: Colors.black54),
               )
             else if (order.orderStatus == 2)
               const Text(
@@ -845,5 +940,4 @@ class _ShopPageState extends State<ShopPage> {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${two(d.day)}.${two(d.month)}.${d.year}.';
   }
-
 }

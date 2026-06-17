@@ -10,19 +10,30 @@ import '../models/book.dart';
 import '../models/author.dart';
 import '../models/category.dart';
 import '../models/review.dart';
-
-import '../models/comment.dart';
-import '../models/commentAnswer.dart';
-import '../models/userReport.dart';
+import '../models/comment.dart' hide User;
+import '../models/commentAnswer.dart' hide User;
+import '../models/userReport.dart' hide User;
+import '../models/order_report.dart';
+import '../models/user.dart';
 
 import 'dart:typed_data';
-import 'package:http/http.dart' as http;
 
 import '../models/order.dart';
 
 class ApiException implements Exception {
   final String message;
   ApiException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class ApiUnauthorizedException implements Exception {
+  final String message;
+
+  ApiUnauthorizedException([
+    this.message = 'Sesija je istekla. Prijavite se ponovo.',
+  ]);
 
   @override
   String toString() => message;
@@ -39,6 +50,33 @@ class ApiService {
   static bool get isAdmin => roleName == "Admin";
   static bool get isEmployee => roleName == "Employee";
 
+  /// Poziva se kada backend vrati 401 Unauthorized.
+  /// U main.dart se ovdje postavlja redirect na login ekran.
+  static void Function()? onUnauthorized;
+
+  static Future<void> clearSession() async {
+    _authHeader = '';
+    roleName = null;
+  }
+
+  static Future<void> _handleUnauthorized(http.Response response) async {
+    if (response.statusCode == 401) {
+      await clearSession();
+      onUnauthorized?.call();
+      throw ApiUnauthorizedException();
+    }
+  }
+
+  static Future<void> _handleUnauthorizedStreamed(
+    http.StreamedResponse response,
+  ) async {
+    if (response.statusCode == 401) {
+      await clearSession();
+      onUnauthorized?.call();
+      throw ApiUnauthorizedException();
+    }
+  }
+
   static String _extractErrorMessage(
     http.Response response,
     String defaultMessage,
@@ -54,42 +92,64 @@ class ApiService {
   }
 
   static Future<void> login(String username, String password) async {
-  final response = await http.post(
-    Uri.parse('$_apiBase/Users/login'),
-    headers: {'Content-Type': 'application/json'},
-    body: jsonEncode({'username': username, 'password': password}),
-  );
+    final response = await http.post(
+      Uri.parse('$_apiBase/Users/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
+    );
 
-  if (response.statusCode != 200 && response.statusCode != 201) {
-    throw Exception('Greška pri prijavi: ${response.body}');
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('Greška pri prijavi: ${response.body}');
+    }
+
+    final data = jsonDecode(response.body);
+
+    roleName = (data['role'] as String?)?.trim();
+
+    if (roleName == null || roleName!.isEmpty) {
+      throw ApiException('Nije moguće pronaći korisničku ulogu.');
+    }
+
+    final token = data['token'] as String?;
+
+    if (token == null || token.isEmpty) {
+      throw ApiException('JWT token nije vraćen sa servera.');
+    }
+
+    _authHeader = 'Bearer $token';
   }
 
-  final data = jsonDecode(response.body);
+  static Future<void> logout() async {
+    final currentAuthHeader = _authHeader;
 
-  roleName = data['role']?['name'];
-
-  if (roleName == null) {
-    throw ApiException('Nije moguće pronaći korisničku ulogu.');
+    try {
+      if (currentAuthHeader.isNotEmpty) {
+        await http.post(
+          Uri.parse('$_apiBase/Auth/logout'),
+          headers: {'Authorization': currentAuthHeader},
+        );
+      }
+    } catch (_) {
+    } finally {
+      await clearSession();
+    }
   }
 
-  final basicAuth =
-      'Basic ${base64Encode(utf8.encode('$username:$password'))}';
-  _authHeader = basicAuth;
-}
-  
   //-----------------PDF---------------------
   static Future<Uint8List> getBookPdf(int id) async {
-  final response = await http.get(
-    Uri.parse('$_apiBase/Book/$id/pdf'),
-    headers: {'Authorization': _authHeader},
-  );
+    final response = await http.get(
+      Uri.parse('$_apiBase/Book/$id/pdf'),
+      headers: {'Authorization': _authHeader},
+    );
 
-  if (response.statusCode != 200) {
-    throw Exception('Greška pri dohvaćanju PDF-a');
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200) {
+      throw Exception('Greška pri dohvaćanju PDF-a');
+    }
+
+    return response.bodyBytes;
   }
-
-  return response.bodyBytes;
-}
 
   // ---------------- CITIES ----------------
   static Future<List<City>> fetchCities({
@@ -119,6 +179,8 @@ class ApiService {
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(response, 'Greška pri dohvatu gradova.');
       throw ApiException(msg);
@@ -147,6 +209,8 @@ class ApiService {
       body: jsonEncode(cityData),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200 && response.statusCode != 201) {
       final msg = _extractErrorMessage(response, 'Greška pri dodavanju grada.');
       throw ApiException(msg);
@@ -166,6 +230,8 @@ class ApiService {
       body: jsonEncode(updatedCity),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -178,20 +244,12 @@ class ApiService {
   static Future<void> deleteCity(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/City/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode == 200) {
-      final result = response.body.trim().toLowerCase() == 'true';
-      if (!result) {
-        throw ApiException(
-          'Grad nije moguće obrisati jer je možda povezan s korisnicima.',
-        );
-      }
-    } else {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(response, 'Greška pri brisanju grada.');
       throw ApiException(msg);
     }
@@ -199,15 +257,30 @@ class ApiService {
 
   // ---------------- ROLES ----------------
 
-  static Future<List<Role>> fetchRoles({String? name}) async {
-    final uri = Uri.parse('$_apiBase/Role').replace(
-      queryParameters: name != null && name.isNotEmpty ? {'name': name} : null,
-    );
+  static Future<List<Role>> fetchRoles({
+    String? name,
+    int? page,
+    int? pageSize,
+  }) async {
+    final qp = <String, String>{};
+
+    if (name != null && name.trim().isNotEmpty) {
+      qp['name'] = name.trim();
+    }
+
+    if (page != null) qp['Page'] = page.toString();
+    if (pageSize != null) qp['PageSize'] = pageSize.toString();
+
+    final uri = Uri.parse(
+      '$_apiBase/Role',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode == 200) {
       final decoded = json.decode(response.body);
@@ -215,6 +288,7 @@ class ApiService {
           decoded is Map && decoded['items'] is List
               ? decoded['items']
               : <dynamic>[];
+
       return data.map((json) => Role.fromJson(json)).toList();
     } else {
       final msg = _extractErrorMessage(response, 'Greška pri dohvatu uloga.');
@@ -231,6 +305,8 @@ class ApiService {
       },
       body: jsonEncode(roleData),
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       final msg = _extractErrorMessage(response, 'Greška pri dodavanju uloge.');
@@ -251,6 +327,8 @@ class ApiService {
       body: jsonEncode(updatedRole),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -263,18 +341,12 @@ class ApiService {
   static Future<void> deleteRole(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Role/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode == 200) {
-      final result = response.body.trim().toLowerCase() == 'true';
-      if (!result) {
-        throw ApiException('Greška pri brisanju uloge.');
-      }
-    } else {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(response, 'Greška pri brisanju uloge.');
       throw ApiException(msg);
     }
@@ -292,6 +364,8 @@ class ApiService {
       body: jsonEncode(userData),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200 && response.statusCode != 201) {
       final msg = _extractErrorMessage(
         response,
@@ -301,7 +375,7 @@ class ApiService {
     }
   }
 
-  static Future<List<Map<String, dynamic>>> fetchUsers({
+  static Future<List<User>> fetchUsers({
     String? firstName,
     String? lastName,
     String? username,
@@ -312,11 +386,11 @@ class ApiService {
     bool includeTotalCount = false,
   }) async {
     final qp = <String, String>{};
-    void addQP(String key, dynamic v) {
-      if (v == null) return;
 
-      final s = v.toString().trim();
-      if (s.isNotEmpty) qp[key] = s;
+    void addQP(String key, Object? value) {
+      if (value == null) return;
+      final text = value.toString().trim();
+      if (text.isNotEmpty) qp[key] = text;
     }
 
     addQP('FirstName', firstName);
@@ -338,6 +412,8 @@ class ApiService {
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -348,50 +424,30 @@ class ApiService {
 
     final decoded = jsonDecode(response.body);
 
-    final List items;
+    final List data;
     if (decoded is Map && decoded['items'] is List) {
-      items = List.from(decoded['items']);
+      data = List.from(decoded['items']);
     } else if (decoded is List) {
-      items = decoded;
+      data = decoded;
     } else {
       throw ApiException('Neočekivan format odgovora za korisnike.');
     }
 
-    int _parseId(dynamic v) {
-      if (v is int) return v;
-      final s = v?.toString();
-      final parsed = int.tryParse(s ?? '');
-      return parsed ?? 0;
-    }
-
-    String _safeJoinName(dynamic first, dynamic last, dynamic username) {
-      final f = (first ?? '').toString().trim();
-      final l = (last ?? '').toString().trim();
-      final joined = [f, l].where((s) => s.isNotEmpty).join(' ');
-      if (joined.isNotEmpty) return joined;
-      final u = (username ?? '').toString().trim();
-      return u.isNotEmpty ? u : '—';
-    }
-
-    return items.map<Map<String, dynamic>>((json) {
-      final m = json as Map<String, dynamic>;
-      return {
-        'id': _parseId(m['id']),
-        'name': _safeJoinName(m['firstName'], m['lastName'], m['username']),
-        'email': (m['email'] ?? '').toString(),
-        'roleName': (m['role']?['name'] ?? '').toString(),
-      };
-    }).toList();
+    return data
+        .map((json) => User.fromJson(json as Map<String, dynamic>))
+        .toList();
   }
 
-  static Future<Map<String, dynamic>> getUserDetails(int id) async {
+  static Future<User> getUserDetails(int id) async {
     final response = await http.get(
       Uri.parse('$_apiBase/Users/$id'),
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode == 200) {
-      return json.decode(response.body) as Map<String, dynamic>;
+      return User.fromJson(json.decode(response.body) as Map<String, dynamic>);
     } else {
       final msg = _extractErrorMessage(
         response,
@@ -414,6 +470,8 @@ class ApiService {
       body: jsonEncode(updatedUser),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -428,6 +486,8 @@ class ApiService {
       Uri.parse('$_apiBase/Users/$id'),
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 204) {
       final msg = _extractErrorMessage(
@@ -467,6 +527,8 @@ class ApiService {
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(response, 'Greška pri dohvatu država.');
       throw ApiException(msg);
@@ -493,6 +555,8 @@ class ApiService {
       body: jsonEncode(countryData),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200 && response.statusCode != 201) {
       final msg = _extractErrorMessage(
         response,
@@ -515,6 +579,8 @@ class ApiService {
       body: jsonEncode(updatedCountry),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -527,20 +593,12 @@ class ApiService {
   static Future<void> deleteCountry(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Country/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode == 200) {
-      final result = response.body.trim().toLowerCase() == 'true';
-      if (!result) {
-        throw ApiException(
-          'Država nije mogla biti obrisana jer je možda povezana s gradovima.',
-        );
-      }
-    } else {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(response, 'Greška pri brisanju države.');
       throw ApiException(msg);
     }
@@ -548,15 +606,35 @@ class ApiService {
 
   // ---------------- CATEGORIES ----------------
 
-  static Future<List<Category>> fetchCategories({String? name}) async {
-    final uri = Uri.parse('$_apiBase/Category').replace(
-      queryParameters: name != null && name.isNotEmpty ? {'name': name} : null,
-    );
+  static Future<List<Category>> fetchCategories({
+    String? name,
+    int? page,
+    int? pageSize,
+  }) async {
+    final qp = <String, String>{};
+
+    if (name != null && name.trim().isNotEmpty) {
+      qp['name'] = name.trim();
+    }
+
+    if (page != null) {
+      qp['Page'] = page.toString();
+    }
+
+    if (pageSize != null) {
+      qp['PageSize'] = pageSize.toString();
+    }
+
+    final uri = Uri.parse(
+      '$_apiBase/Category',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode == 200) {
       final decoded = json.decode(response.body);
@@ -564,6 +642,7 @@ class ApiService {
           decoded is Map && decoded['items'] is List
               ? decoded['items']
               : <dynamic>[];
+
       return data.map((json) => Category.fromJson(json)).toList();
     } else {
       final msg = _extractErrorMessage(
@@ -583,6 +662,8 @@ class ApiService {
       },
       body: jsonEncode(categoryData),
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200 && response.statusCode != 201) {
       final msg = _extractErrorMessage(
@@ -606,6 +687,8 @@ class ApiService {
       body: jsonEncode(updatedCategory),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -618,20 +701,12 @@ class ApiService {
   static Future<void> deleteCategory(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Category/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode == 200) {
-      final result = response.body.trim().toLowerCase() == 'true';
-      if (!result) {
-        throw ApiException(
-          'Kategorija nije mogla biti obrisana jer je možda povezana s knjigama.',
-        );
-      }
-    } else {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
         response,
         'Greška pri brisanju kategorije.',
@@ -661,14 +736,16 @@ class ApiService {
     if (pageSize != null) qp['PageSize'] = pageSize.toString();
     if (includeTotalCount) qp['IncludeTotalCount'] = 'true';
 
-    final uri = Uri.parse('$_apiBase/Author').replace(
-      queryParameters: qp.isEmpty ? null : qp,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/Author',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(response, 'Greška pri dohvatu autora.');
@@ -698,6 +775,8 @@ class ApiService {
       body: jsonEncode(authorData),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode == 200 || response.statusCode == 201) {
       return;
     }
@@ -726,6 +805,8 @@ class ApiService {
       body: jsonEncode(updatedAuthor),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -738,20 +819,12 @@ class ApiService {
   static Future<void> deleteAuthor(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Author/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode == 200) {
-      final result = response.body.trim().toLowerCase() == 'true';
-      if (!result) {
-        throw ApiException(
-          'Autor nije mogao biti obrisan jer je možda povezan s knjigama.',
-        );
-      }
-    } else {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(response, 'Greška pri brisanju autora.');
       throw ApiException(msg);
     }
@@ -782,17 +855,22 @@ class ApiService {
     if (pageSize != null) qp['PageSize'] = pageSize.toString();
     if (includeTotalCount) qp['IncludeTotalCount'] = 'true';
 
-    final uri = Uri.parse('$_apiBase/Review').replace(
-      queryParameters: qp.isEmpty ? null : qp,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/Review',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
-      final msg = _extractErrorMessage(response, 'Greška pri dohvatu recenzija.');
+      final msg = _extractErrorMessage(
+        response,
+        'Greška pri dohvatu recenzija.',
+      );
       throw ApiException(msg);
     }
 
@@ -813,13 +891,12 @@ class ApiService {
   static Future<void> deleteReview(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Review/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode != 200) {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
         response,
         'Greška pri brisanju recenzije.',
@@ -851,14 +928,16 @@ class ApiService {
     if (pageSize != null) qp['PageSize'] = pageSize.toString();
     if (includeTotalCount) qp['IncludeTotalCount'] = 'true';
 
-    final uri = Uri.parse('$_apiBase/Book').replace(
-      queryParameters: qp.isEmpty ? null : qp,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/Book',
+    ).replace(queryParameters: qp.isEmpty ? null : qp);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(response, 'Greška pri dohvatu knjiga.');
@@ -879,45 +958,45 @@ class ApiService {
   }
 
   static Future<void> deleteBook(int id) async {
-  final response = await http.delete(
-    Uri.parse('$_apiBase/Book/$id'),
-    headers: {
-      'Authorization': _authHeader,
-    },
-  );
-
-  if (response.statusCode != 200 && response.statusCode != 204) {
-    final msg = _extractErrorMessage(response, 'Greška pri brisanju knjige.');
-    throw ApiException(msg);
-  }
-}
-
-  static Future<Map<String, dynamic>> createBook(
-  Map<String, dynamic> bookData,
-) async {
-  final response = await http.post(
-    Uri.parse('$_apiBase/Book'),
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': _authHeader,
-    },
-    body: jsonEncode(bookData),
-  );
-
-  if (response.statusCode != 200 && response.statusCode != 201) {
-    final msg = _extractErrorMessage(
-      response,
-      'Greška pri dodavanju knjige.',
+    final response = await http.delete(
+      Uri.parse('$_apiBase/Book/$id'),
+      headers: {'Authorization': _authHeader},
     );
-    throw ApiException(msg);
+
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      final msg = _extractErrorMessage(response, 'Greška pri brisanju knjige.');
+      throw ApiException(msg);
+    }
   }
 
-  if (response.body.isEmpty) {
-    throw ApiException('Knjiga je dodana, ali API nije vratio podatke.');
-  }
+  static Future<Book> createBook(Map<String, dynamic> bookData) async {
+    final response = await http.post(
+      Uri.parse('$_apiBase/Book'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': _authHeader,
+      },
+      body: jsonEncode(bookData),
+    );
 
-  return jsonDecode(response.body) as Map<String, dynamic>;
-}
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      final msg = _extractErrorMessage(
+        response,
+        'Greška pri dodavanju knjige.',
+      );
+      throw ApiException(msg);
+    }
+
+    if (response.body.isEmpty) {
+      throw ApiException('Knjiga je dodana, ali API nije vratio podatke.');
+    }
+
+    return Book.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
 
   static Future<void> updateBook(
     int id,
@@ -932,6 +1011,8 @@ class ApiService {
       body: jsonEncode(updatedBook),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -942,94 +1023,92 @@ class ApiService {
   }
 
   static Future<void> uploadBookCover(
-  int bookId,
-  Uint8List bytes,
-  String fileName,
+    int bookId,
+    Uint8List bytes,
+    String fileName,
   ) async {
-  final uri = Uri.parse('$_apiBase/Book/$bookId/cover');
+    final uri = Uri.parse('$_apiBase/Book/$bookId/cover');
 
-  final request = http.MultipartRequest('PUT', uri);
+    final request = http.MultipartRequest('PUT', uri);
+    request.headers['Authorization'] = _authHeader;
 
-  request.headers['Authorization'] = _authHeader;
+    request.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+    );
 
-  request.files.add(
-    http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: fileName,
-    ),
-  );
+    final response = await request.send();
 
-  final response = await request.send();
+    await _handleUnauthorizedStreamed(response);
 
-  if (response.statusCode != 200) {
-    final body = await response.stream.bytesToString();
-    throw ApiException('Greška pri uploadu slike: $body');
+    if (response.statusCode != 200) {
+      final body = await response.stream.bytesToString();
+      throw ApiException('Greška pri uploadu slike: $body');
     }
   }
 
   static Future<void> uploadBookPdf(
-  int bookId,
-  Uint8List bytes,
-  String fileName,
-) async {
-  final uri = Uri.parse('$_apiBase/Book/$bookId/pdf-upload');
+    int bookId,
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    final uri = Uri.parse('$_apiBase/Book/$bookId/pdf-upload');
 
-  final request = http.MultipartRequest('PUT', uri);
+    final request = http.MultipartRequest('PUT', uri);
+    request.headers['Authorization'] = _authHeader;
 
-  request.headers['Authorization'] = _authHeader;
+    request.files.add(
+      http.MultipartFile.fromBytes('file', bytes, filename: fileName),
+    );
 
-  request.files.add(
-    http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: fileName,
-    ),
-  );
+    final response = await request.send();
 
-  final response = await request.send();
+    await _handleUnauthorizedStreamed(response);
 
-  if (response.statusCode != 200) {
-    final body = await response.stream.bytesToString();
-    throw ApiException('Greška pri uploadu PDF-a: $body');
-  }
-}
-
-static String getImageUrl(String? relativeUrl) {
-  if (relativeUrl == null || relativeUrl.isEmpty) return '';
-
-  if (relativeUrl.startsWith('http')) return relativeUrl;
-
-  final uri = Uri.parse(_apiBase);
-  final base = '${uri.scheme}://${uri.host}:${uri.port}';
-
-  return '$base$relativeUrl';
-}
-
-static Future<Book> getBookById(int id) async {
-  final response = await http.get(
-    Uri.parse('$_apiBase/Book/$id'),
-    headers: {
-      'Authorization': _authHeader,
-    },
-  );
-
-  if (response.statusCode != 200) {
-    throw Exception('Greška pri dohvaćanju knjige');
+    if (response.statusCode != 200) {
+      final body = await response.stream.bytesToString();
+      throw ApiException('Greška pri uploadu PDF-a: $body');
+    }
   }
 
-  final data = jsonDecode(response.body);
-  return Book.fromJson(data);
-}
+  static String getImageUrl(String? relativeUrl) {
+    if (relativeUrl == null || relativeUrl.isEmpty) return '';
 
+    if (relativeUrl.startsWith('http')) return relativeUrl;
+
+    final uri = Uri.parse(_apiBase);
+    final base = '${uri.scheme}://${uri.host}:${uri.port}';
+
+    return '$base$relativeUrl';
+  }
+
+  static Future<Book> getBookById(int id) async {
+    final response = await http.get(
+      Uri.parse('$_apiBase/Book/$id'),
+      headers: {'Authorization': _authHeader},
+    );
+
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200) {
+      throw Exception('Greška pri dohvaćanju knjige');
+    }
+
+    final data = jsonDecode(response.body);
+    return Book.fromJson(data);
+  }
 
   // ---------------- COMMENTS ----------------
 
   static Future<List<Comment>> fetchComments({
     String? content,
     int? userId,
+    int page = 1,
+    int pageSize = 10,
   }) async {
-    final Map<String, String> queryParams = {};
+    final Map<String, String> queryParams = {
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
 
     if (content != null && content.trim().isNotEmpty) {
       queryParams['content'] = content.trim();
@@ -1039,16 +1118,16 @@ static Future<Book> getBookById(int id) async {
       queryParams['userId'] = userId.toString();
     }
 
-    final uri = Uri.parse('$_apiBase/Comment').replace(
-      queryParameters: queryParams.isEmpty ? null : queryParams,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/Comment',
+    ).replace(queryParameters: queryParams);
 
     final response = await http.get(
       uri,
-      headers: {
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode == 200) {
       final decoded = jsonDecode(response.body);
@@ -1057,9 +1136,7 @@ static Future<Book> getBookById(int id) async {
               ? decoded['items']
               : <dynamic>[];
 
-      return data
-          .map<Comment>((json) => Comment.fromJson(json))
-          .toList();
+      return data.map<Comment>((json) => Comment.fromJson(json)).toList();
     } else {
       final msg = _extractErrorMessage(
         response,
@@ -1072,13 +1149,12 @@ static Future<Book> getBookById(int id) async {
   static Future<void> deleteComment(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/Comment/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode != 200) {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
         response,
         'Greška pri brisanju komentara.',
@@ -1093,8 +1169,13 @@ static Future<Book> getBookById(int id) async {
     String? content,
     int? userId,
     int? parentCommentId,
+    int page = 1,
+    int pageSize = 10,
   }) async {
-    final Map<String, String> queryParams = {};
+    final Map<String, String> queryParams = {
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
 
     if (content != null && content.trim().isNotEmpty) {
       queryParams['content'] = content.trim();
@@ -1106,9 +1187,9 @@ static Future<Book> getBookById(int id) async {
       queryParams['parentCommentId'] = parentCommentId.toString();
     }
 
-    final uri = Uri.parse('$_apiBase/CommentAnswer').replace(
-      queryParameters: queryParams.isEmpty ? null : queryParams,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/CommentAnswer',
+    ).replace(queryParameters: queryParams);
 
     final response = await http.get(
       uri,
@@ -1117,6 +1198,8 @@ static Future<Book> getBookById(int id) async {
         'Authorization': _authHeader,
       },
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode == 200) {
       final decoded = jsonDecode(response.body);
@@ -1140,13 +1223,12 @@ static Future<Book> getBookById(int id) async {
   static Future<void> deleteCommentAnswer(int id) async {
     final response = await http.delete(
       Uri.parse('$_apiBase/CommentAnswer/$id'),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': _authHeader,
-      },
+      headers: {'Authorization': _authHeader},
     );
 
-    if (response.statusCode != 200) {
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
         response,
         'Greška pri brisanju odgovora.',
@@ -1162,8 +1244,13 @@ static Future<Book> getBookById(int id) async {
     int? status,
     int? userReportedId,
     int? reportedByUserId,
+    int page = 1,
+    int pageSize = 10,
   }) async {
-    final Map<String, String> queryParams = {};
+    final Map<String, String> queryParams = {
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
 
     if (reason != null && reason.trim().isNotEmpty) {
       queryParams['reason'] = reason.trim();
@@ -1178,14 +1265,16 @@ static Future<Book> getBookById(int id) async {
       queryParams['reportedByUserId'] = reportedByUserId.toString();
     }
 
-    final uri = Uri.parse('$_apiBase/UserReport').replace(
-      queryParameters: queryParams.isEmpty ? null : queryParams,
-    );
+    final uri = Uri.parse(
+      '$_apiBase/UserReport',
+    ).replace(queryParameters: queryParams);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode == 200) {
       final decoded = jsonDecode(response.body);
@@ -1201,21 +1290,18 @@ static Future<Book> getBookById(int id) async {
   }
 
   static Future<void> updateUserReport(UserReport report, int newStatus) async {
-    final updatedBody = {
-      'reason': report.reason,
-      'status': newStatus,
-      'userReportedId': report.userReported.id,
-      'reportedByUserId': report.reportedByUser.id,
-    };
+    final updatedBody = {'status': newStatus};
 
     final response = await http.put(
-      Uri.parse('$_apiBase/UserReport/${report.id}'),
+      Uri.parse('$_apiBase/UserReport/${report.id}/process'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': _authHeader,
       },
       body: jsonEncode(updatedBody),
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
@@ -1235,8 +1321,14 @@ static Future<Book> getBookById(int id) async {
     double? totalPrice,
     int? orderStatus,
     int? paymentStatus,
+    bool? excludeCompleted,
+    int page = 1,
+    int pageSize = 10,
   }) async {
-    final params = <String, String>{};
+    final params = <String, String>{
+      'page': page.toString(),
+      'pageSize': pageSize.toString(),
+    };
 
     if (type != null) {
       params['type'] = type.toString();
@@ -1253,15 +1345,21 @@ static Future<Book> getBookById(int id) async {
     if (paymentStatus != null) {
       params['paymentStatus'] = paymentStatus.toString();
     }
+    if (excludeCompleted != null) {
+      params['excludeCompleted'] = excludeCompleted.toString();
+    }
+    if (includeTotalCount) {
+      params['includeTotalCount'] = 'true';
+    }
 
-    final uri = Uri.parse('$_apiBase/Order').replace(
-      queryParameters: params,
-    );
+    final uri = Uri.parse('$_apiBase/Order').replace(queryParameters: params);
 
     final response = await http.get(
       uri,
       headers: {'Authorization': _authHeader},
     );
+
+    await _handleUnauthorized(response);
 
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
@@ -1285,6 +1383,8 @@ static Future<Book> getBookById(int id) async {
       headers: {'Authorization': _authHeader},
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200 && response.statusCode != 204) {
       final msg = _extractErrorMessage(
         response,
@@ -1307,6 +1407,8 @@ static Future<Book> getBookById(int id) async {
       body: jsonEncode(updatedOrder),
     );
 
+    await _handleUnauthorized(response);
+
     if (response.statusCode != 200) {
       final msg = _extractErrorMessage(
         response,
@@ -1314,5 +1416,42 @@ static Future<Book> getBookById(int id) async {
       );
       throw ApiException(msg);
     }
+  }
+
+  static Future<OrderReport> fetchOrderReport({
+    DateTime? dateFrom,
+    DateTime? dateTo,
+  }) async {
+    final params = <String, String>{};
+
+    if (dateFrom != null) {
+      params['dateFrom'] = dateFrom.toIso8601String();
+    }
+
+    if (dateTo != null) {
+      params['dateTo'] = dateTo.toIso8601String();
+    }
+
+    final uri = Uri.parse(
+      '$_apiBase/Order/report',
+    ).replace(queryParameters: params);
+
+    final response = await http.get(
+      uri,
+      headers: {'Authorization': _authHeader},
+    );
+
+    await _handleUnauthorized(response);
+
+    if (response.statusCode != 200) {
+      final msg = _extractErrorMessage(
+        response,
+        'Greška pri dohvatu izvještaja.',
+      );
+      throw ApiException(msg);
+    }
+
+    final decoded = jsonDecode(response.body);
+    return OrderReport.fromJson(decoded);
   }
 }

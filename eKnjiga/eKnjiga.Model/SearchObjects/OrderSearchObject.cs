@@ -14,5 +14,6 @@ namespace eKnjiga.Model.SearchObjects
         public OrderType? Type { get; set; }
         public string? OrderBy { get; set; }
         public bool? IsDescending { get; set; }
+        public bool? ExcludeCompleted { get; set; }
     }
 }

@@ -26,6 +26,8 @@ namespace eKnjiga.Services.Database
         public DbSet<UserBook> UserBooks { get; set; }
         public DbSet<UserReport> UserReports { get; set; }
         public DbSet<PaypalLog> PaypalLogs { get; set; }
+        public DbSet<Notification> Notifications { get; set; }
+        public DbSet<RevokedToken> RevokedTokens { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -104,6 +106,12 @@ namespace eKnjiga.Services.Database
             modelBuilder.Entity<Order>()
                 .Property(o => o.TotalPrice)
                 .HasPrecision(18, 2);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.StatusChangedByUser)
+                .WithMany()
+                .HasForeignKey(o => o.StatusChangedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<OrderItem>()
                 .Property(o => o.UnitPrice)
@@ -753,7 +761,10 @@ namespace eKnjiga.Services.Database
                     OrderStatus = OrderStatus.Cancelled,
                     PaymentStatus = PaymentStatus.Unpaid,
                     Type = OrderType.Purchase,
-                    UserId = 8
+                    UserId = 8,
+                    CancellationReason = "Istekao rok za placanje.",
+                    StatusChangedAt = new DateTime(2026, 2, 27, 12, 0, 0),
+                    StatusChangedByUserId = 1
                 },
                 new Order
                 {
@@ -896,6 +907,52 @@ namespace eKnjiga.Services.Database
                 new UserBook { UserId = 7, BookId = 11, IsFavorite = false },
                 new UserBook { UserId = 9, BookId = 10, IsFavorite = false },
                 new UserBook { UserId = 10, BookId = 9, IsFavorite = false }
+            );
+
+            modelBuilder.Entity<Notification>()
+                .HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.Title)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            modelBuilder.Entity<Notification>()
+                .Property(x => x.Text)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            modelBuilder.Entity<Notification>().HasData(
+                new Notification
+                {
+                    Id = 1,
+                    UserId = 2,
+                    Title = "Narudžba kreirana",
+                    Text = "Vaša narudžba #1 je uspješno kreirana.",
+                    CreatedAt = new DateTime(2026, 3, 25, 12, 5, 0),
+                    IsRead = false
+                },
+                new Notification
+                {
+                    Id = 2,
+                    UserId = 2,
+                    Title = "Plaćanje uspješno",
+                    Text = "Plaćanje za narudžbu #1 je uspješno evidentirano.",
+                    CreatedAt = new DateTime(2026, 3, 25, 12, 10, 0),
+                    IsRead = true
+                },
+                new Notification
+                {
+                    Id = 3,
+                    UserId = 8,
+                    Title = "Narudžba otkazana",
+                    Text = "Vaša narudžba #8 je otkazana zbog isteka roka za plaćanje.",
+                    CreatedAt = new DateTime(2026, 2, 27, 12, 0, 0),
+                    IsRead = false
+                }
             );
         }
     }

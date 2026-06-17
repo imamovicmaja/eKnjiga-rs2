@@ -1,4 +1,5 @@
 using eKnjiga.Model.Enums;
+using System.ComponentModel.DataAnnotations;
 
 namespace eKnjiga.Model.Requests
 {
@@ -6,5 +7,7 @@ namespace eKnjiga.Model.Requests
     {
         public OrderStatus OrderStatus { get; set; }
         public PaymentStatus PaymentStatus { get; set; }
+        [MaxLength(300)]
+        public string? Reason { get; set; }
     }
 }

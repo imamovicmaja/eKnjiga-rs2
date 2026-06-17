@@ -36,34 +36,6 @@ namespace eKnjiga.Services
             return query;
         }
 
-        public override async Task<PagedResult<CategoryResponse>> GetAsync(CategorySearchObject search)
-        {
-            var query = _context.Categories.AsQueryable();
-
-            query = ApplyFilter(query, search);
-
-            int? totalCount = null;
-            if (search.IncludeTotalCount || !search.RetrieveAll)
-            {
-                totalCount = await query.CountAsync();
-            }
-
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                if (search.PageSize.HasValue)
-                    query = query.Take(search.PageSize.Value);
-            }
-
-            var list = await query.ToListAsync();
-            return new PagedResult<CategoryResponse>
-            {
-                Items = list.Select(MapToResponse).ToList(),
-                TotalCount = totalCount
-            };
-        }
-
         public override async Task<CategoryResponse?> GetByIdAsync(int id)
         {
             var category = await _context.Categories

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-
+import 'dart:async';
 import 'genre_screen.dart';
 import './../BOOKS/books_page.dart';
 import './../MESSAGES/messages_page.dart';
 import './../SETTINGS/settings_page.dart';
+import './../NOTIFICATIONS/notifications_page.dart';
 import 'package:eknjiga/SHOP/shop_page.dart';
 
 import '../models/book.dart';
@@ -25,11 +26,7 @@ class _HomePageState extends State<HomePage> {
   static const LinearGradient _pageGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [
-      Color(0xFFD4D8F3),
-      Color(0xFF8D9EDB),
-      Color(0xFFB59C4A),
-    ],
+    colors: [Color(0xFFD4D8F3), Color(0xFF8D9EDB), Color(0xFFB59C4A)],
     stops: [0.0, 0.56, 1.0],
   );
 
@@ -48,10 +45,19 @@ class _HomePageState extends State<HomePage> {
   bool _isLoading = true;
   String? _error;
 
+  Timer? _notificationTimer;
+  int _unreadNotifications = 0;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    _loadUnreadNotifications();
+
+    _notificationTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _loadUnreadNotifications(),
+    );
   }
 
   Future<void> _loadData({Category? category}) async {
@@ -106,8 +112,23 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _loadUnreadNotifications() async {
+    try {
+      final count = await ApiService.fetchUnreadNotificationsCount();
+
+      if (!mounted) return;
+
+      setState(() {
+        _unreadNotifications = count;
+      });
+    } catch (e) {
+      print("Greška pri dohvatanju nepročitanih notifikacija: $e");
+    }
+  }
+
   @override
   void dispose() {
+    _notificationTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -126,9 +147,7 @@ class _HomePageState extends State<HomePage> {
   void _openBook(Book book) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => BookDetailsPage(bookId: book.id),
-      ),
+      MaterialPageRoute(builder: (_) => BookDetailsPage(bookId: book.id)),
     );
   }
 
@@ -181,8 +200,9 @@ class _HomePageState extends State<HomePage> {
             final result = await Navigator.push<Category?>(
               context,
               MaterialPageRoute(
-                builder: (context) =>
-                    GenreScreen(initialCategory: _selectedCategory),
+                builder:
+                    (context) =>
+                        GenreScreen(initialCategory: _selectedCategory),
               ),
             );
 
@@ -228,14 +248,36 @@ class _HomePageState extends State<HomePage> {
               });
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.black),
-            onPressed: () {
-              _selectedCategory = null;
-              _searchController.clear();
-              _searchQuery = '';
-              _loadData();
-            },
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none, color: Colors.black),
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationsPage(),
+                    ),
+                  );
+
+                  _loadUnreadNotifications();
+                },
+              ),
+              if (_unreadNotifications > 0)
+                Positioned(
+                  right: 7,
+                  top: 7,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
           ),
           ValueListenableBuilder<int>(
             valueListenable: Cart.I.count,
@@ -290,9 +332,7 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: _pageGradient,
-        ),
+        decoration: const BoxDecoration(gradient: _pageGradient),
         child: _buildBody(),
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -327,64 +367,64 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildBody() {
-  if (_isLoading) {
-    return const Center(child: CircularProgressIndicator());
-  }
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-  if (_error != null) {
-    return Center(child: Text(_error!));
-  }
+    if (_error != null) {
+      return Center(child: Text(_error!));
+    }
 
-  final filteredRecommended = _filterBooks(_recommended);
-  final filteredNew = _filterBooks(_newBooks);
-  final filteredAll = _filterBooks(_allBooks);
+    final filteredRecommended = _filterBooks(_recommended);
+    final filteredNew = _filterBooks(_newBooks);
+    final filteredAll = _filterBooks(_allBooks);
 
-  return Column(
-    children: [
-      if (_showSearchBar)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-          child: TextField(
-            controller: _searchController,
-            onChanged: (value) {
-              setState(() {
-                _searchQuery = value;
-              });
-            },
-            decoration: InputDecoration(
-              hintText: 'Pretraži knjige ili autore...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide.none,
+    return Column(
+      children: [
+        if (_showSearchBar)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (value) {
+                setState(() {
+                  _searchQuery = value;
+                });
+              },
+              decoration: InputDecoration(
+                hintText: 'Pretraži knjige ili autore...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ),
-        ),
 
-      Expanded(
-        child: ListView(
-          padding: const EdgeInsets.only(top: 10, bottom: 16),
-          children: [
-            _sectionTitle('Preporučeno'),
-            _bookCarousel(filteredRecommended),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.only(top: 10, bottom: 16),
+            children: [
+              _sectionTitle('Preporučeno'),
+              _bookCarousel(filteredRecommended, showReason: true),
 
-            if (_selectedCategory == null) ...[
-              _sectionTitle('Novo u prodaji'),
-              _bookCarousel(filteredNew),
+              if (_selectedCategory == null) ...[
+                _sectionTitle('Novo u prodaji'),
+                _bookCarousel(filteredNew),
+              ],
+
+              _sectionTitle('Sve knjige'),
+              _bookCarousel(filteredAll),
             ],
-
-            _sectionTitle('Sve knjige'),
-            _bookCarousel(filteredAll),
-          ],
+          ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   Widget _sectionTitle(String title) {
     return Padding(
@@ -400,12 +440,12 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _bookCarousel(List<Book> books) {
+  Widget _bookCarousel(List<Book> books, {bool showReason = false}) {
     const double cardWidth = 135;
     const double imageHeight = 188;
 
     return SizedBox(
-      height: 258,
+      height: showReason ? 305 : 258,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: books.length,
@@ -422,6 +462,7 @@ class _HomePageState extends State<HomePage> {
                 book: book,
                 cardWidth: cardWidth,
                 imageHeight: imageHeight,
+                showReason: showReason,
               ),
             ),
           );
@@ -435,11 +476,13 @@ class _BookCard extends StatelessWidget {
   final Book book;
   final double cardWidth;
   final double imageHeight;
+  final bool showReason;
 
   const _BookCard({
     required this.book,
     required this.cardWidth,
     required this.imageHeight,
+    this.showReason = false,
   });
 
   @override
@@ -453,18 +496,18 @@ class _BookCard extends StatelessWidget {
         children: [
           imageUrl.isNotEmpty
               ? BookImage(
-                  url: imageUrl,
-                  height: imageHeight,
-                  width: cardWidth,
-                  borderRadius: 24,
-                )
+                url: imageUrl,
+                height: imageHeight,
+                width: cardWidth,
+                borderRadius: 24,
+              )
               : Container(
-                  height: imageHeight,
-                  width: cardWidth,
-                  color: Colors.grey.shade200,
-                  alignment: Alignment.center,
-                  child: const Icon(Icons.menu_book, size: 40),
-                ),
+                height: imageHeight,
+                width: cardWidth,
+                color: Colors.grey.shade200,
+                alignment: Alignment.center,
+                child: const Icon(Icons.menu_book, size: 40),
+              ),
           const SizedBox(height: 8),
           SizedBox(
             height: 34,
@@ -487,12 +530,31 @@ class _BookCard extends StatelessWidget {
               book.authors.join(', '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.black54,
-                fontSize: 12.5,
-              ),
+              style: const TextStyle(color: Colors.black54, fontSize: 12.5),
             ),
           ),
+          if (showReason &&
+              book.whyRecommended != null &&
+              book.whyRecommended!.trim().isNotEmpty)
+            Container(
+              margin: const EdgeInsets.only(top: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 5),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.45),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                book.whyRecommended!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 10.8,
+                  height: 1.15,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
         ],
       ),
     );

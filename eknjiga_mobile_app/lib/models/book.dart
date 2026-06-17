@@ -10,6 +10,7 @@ class Book {
   final List<int> authorIds;
   final List<int> categoryIds;
   final String? coverImage;
+  final String? whyRecommended;
 
   Book({
     required this.id,
@@ -23,6 +24,7 @@ class Book {
     required this.authorIds,
     required this.categoryIds,
     required this.coverImage,
+    required this.whyRecommended,
   });
 
   factory Book.fromJson(Map<String, dynamic> json) {
@@ -36,22 +38,22 @@ class Book {
       price: (json['price'] as num?)?.toDouble() ?? 0,
       rating: (json['rating'] as num?)?.toDouble() ?? 0,
       ratingCount: json['ratingCount'] ?? 0,
-      createdAt: json['createdAt'] != null
-          ? DateTime.parse(json['createdAt'])
-          : DateTime.now(),
-      authors: authorsJson
-          .map((a) => "${a['firstName'] ?? ''} ${a['lastName'] ?? ''}".trim())
-          .toList()
-          .cast<String>(),
-      authorIds: authorsJson
-          .map((a) => a['id'] as int)
-          .toList()
-          .cast<int>(),
-      categoryIds: categoriesJson
-          .map((c) => c['id'] as int)
-          .toList()
-          .cast<int>(),
+      createdAt:
+          json['createdAt'] != null
+              ? DateTime.parse(json['createdAt'])
+              : DateTime.now(),
+      authors:
+          authorsJson
+              .map(
+                (a) => "${a['firstName'] ?? ''} ${a['lastName'] ?? ''}".trim(),
+              )
+              .toList()
+              .cast<String>(),
+      authorIds: authorsJson.map((a) => a['id'] as int).toList().cast<int>(),
+      categoryIds:
+          categoriesJson.map((c) => c['id'] as int).toList().cast<int>(),
       coverImage: json['coverImage'],
+      whyRecommended: json['whyRecommended'],
     );
   }
 }

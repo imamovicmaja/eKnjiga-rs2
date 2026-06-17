@@ -22,22 +22,27 @@ namespace eKnjiga.Services
 
         public async Task<PagedResult<BookListResponse>> GetAsync(BookSearchObject search)
         {
+            search ??= new BookSearchObject();
+
             var query = _context.Books.AsQueryable();
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderByDescending(b => b.CreatedAt);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll && search.Page.HasValue && search.PageSize.HasValue)
-            {
-                query = query
-                    .Skip(search.Page.Value * search.PageSize.Value)
-                    .Take(search.PageSize.Value);
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query
                 .Select(book => new BookListResponse
@@ -113,17 +118,18 @@ namespace eKnjiga.Services
 
         public async Task<byte[]?> GetPdfForUserAsync(int bookId, int userId)
         {
-            var hasAccess = await _context.OrderItems
-                .AnyAsync(oi => oi.Order.UserId == userId &&
-                                oi.BookId == bookId &&
-                                oi.IsPdfPurchase &&
-                                oi.Order.PaymentStatus == PaymentStatus.Paid);
+            var hasAccess = await _context.UserBooks
+                .AnyAsync(ub =>
+                    ub.UserId == userId &&
+                    ub.BookId == bookId);
 
             if (!hasAccess)
                 return null;
 
-            var book = await _context.Books.FindAsync(bookId);
-            return book?.PdfFile;
+            return await _context.Books
+                .Where(b => b.Id == bookId)
+                .Select(b => b.PdfFile)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<BookResponse> InsertAsync(BookUpsertRequest request)

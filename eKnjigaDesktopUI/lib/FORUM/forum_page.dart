@@ -59,6 +59,16 @@ class _ForumPageState extends State<ForumPage> {
   int? _selectedReportedUserId;
   int? _selectedReportedByUserId;
 
+  int _commentsPage = 1;
+  int _answersPage = 1;
+  int _reportsPage = 1;
+
+  static const int _pageSize = 10;
+
+  bool _commentsHasMore = true;
+  bool _answersHasMore = true;
+  bool _reportsHasMore = true;
+
   Timer? _debounce;
   static const _debounceMs = 450;
 
@@ -110,15 +120,16 @@ class _ForumPageState extends State<ForumPage> {
 
       if (!mounted) return;
       setState(() {
-        _filterUsers = fetched
-            .map<ForumFilterUser>(
-              (m) => ForumFilterUser(
-                id: m['id'] as int,
-                firstName: (m['name'] ?? '') as String,
-                lastName: '',
-              ),
-            )
-            .toList();
+        _filterUsers =
+            fetched
+                .map<ForumFilterUser>(
+                  (user) => ForumFilterUser(
+                    id: user.id,
+                    firstName: user.fullName,
+                    lastName: '',
+                  ),
+                )
+                .toList();
       });
     } catch (e) {
       print("Greška pri dohvaćanju korisnika za filtere foruma: $e");
@@ -127,16 +138,63 @@ class _ForumPageState extends State<ForumPage> {
     }
   }
 
-  Future<void> loadComments({String? content, int? userId}) async {
+  Future<void> loadComments({
+    String? content,
+    int? userId,
+    bool reset = true,
+  }) async {
     try {
+      if (reset) {
+        _commentsPage = 1;
+      }
+
       if (mounted) setState(() => _loadingComments = true);
 
       final fetched = await ApiService.fetchComments(
         content: content,
         userId: userId,
+        page: _commentsPage,
+        pageSize: _pageSize,
       );
 
-      if (mounted) setState(() => comments = fetched);
+      if (mounted) {
+        setState(() {
+          comments = fetched;
+          _commentsHasMore = fetched.length == _pageSize;
+        });
+      }
+    } catch (e) {
+      print("Greška: $e");
+    } finally {
+      if (mounted) setState(() => _loadingComments = false);
+    }
+  }
+
+  Future<void> loadMoreComments() async {
+    if (!_commentsHasMore || _loadingComments) return;
+
+    final nextPage = _commentsPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingComments = true);
+
+      final fetched = await ApiService.fetchComments(
+        content:
+            _commentSearchCtrl.text.trim().isEmpty
+                ? null
+                : _commentSearchCtrl.text.trim(),
+        userId: _selectedCommentUserId,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (mounted) {
+        setState(() {
+          _commentsPage = nextPage;
+          comments.addAll(fetched);
+          _commentsHasMore = fetched.length == _pageSize;
+        });
+      }
     } catch (e) {
       print("Greška: $e");
     } finally {
@@ -148,17 +206,61 @@ class _ForumPageState extends State<ForumPage> {
     String? content,
     int? userId,
     int? parentCommentId,
+    bool reset = true,
   }) async {
     try {
+      if (reset) {
+        _answersPage = 1;
+      }
+
       if (mounted) setState(() => _loadingCommentAnswers = true);
 
       final fetched = await ApiService.fetchCommentAnswers(
         content: content,
         userId: userId,
         parentCommentId: parentCommentId,
+        page: _answersPage,
+        pageSize: _pageSize,
       );
 
-      if (mounted) setState(() => commentAnswers = fetched);
+      if (mounted) {
+        setState(() {
+          commentAnswers = fetched;
+          _answersHasMore = fetched.length == _pageSize;
+        });
+      }
+    } catch (e) {
+      print("Greška: $e");
+    } finally {
+      if (mounted) setState(() => _loadingCommentAnswers = false);
+    }
+  }
+
+  Future<void> loadMoreCommentAnswers() async {
+    if (!_answersHasMore || _loadingCommentAnswers) return;
+
+    final nextPage = _answersPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingCommentAnswers = true);
+
+      final fetched = await ApiService.fetchCommentAnswers(
+        content:
+            _answerSearchCtrl.text.trim().isEmpty
+                ? null
+                : _answerSearchCtrl.text.trim(),
+        userId: _selectedAnswerUserId,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (mounted) {
+        setState(() {
+          _answersPage = nextPage;
+          commentAnswers.addAll(fetched);
+          _answersHasMore = fetched.length == _pageSize;
+        });
+      }
     } catch (e) {
       print("Greška: $e");
     } finally {
@@ -171,8 +273,13 @@ class _ForumPageState extends State<ForumPage> {
     int? status,
     int? userReportedId,
     int? reportedByUserId,
+    bool reset = true,
   }) async {
     try {
+      if (reset) {
+        _reportsPage = 1;
+      }
+
       if (mounted) setState(() => _loadingReports = true);
 
       final fetched = await ApiService.fetchUserReports(
@@ -180,9 +287,50 @@ class _ForumPageState extends State<ForumPage> {
         status: status,
         userReportedId: userReportedId,
         reportedByUserId: reportedByUserId,
+        page: _reportsPage,
+        pageSize: _pageSize,
       );
 
-      if (mounted) setState(() => reports = fetched);
+      if (mounted) {
+        setState(() {
+          reports = fetched;
+          _reportsHasMore = fetched.length == _pageSize;
+        });
+      }
+    } catch (e) {
+      print("Greška: $e");
+    } finally {
+      if (mounted) setState(() => _loadingReports = false);
+    }
+  }
+
+  Future<void> loadMoreUserReports() async {
+    if (!_reportsHasMore || _loadingReports) return;
+
+    final nextPage = _reportsPage + 1;
+
+    try {
+      if (mounted) setState(() => _loadingReports = true);
+
+      final fetched = await ApiService.fetchUserReports(
+        reason:
+            _reportSearchCtrl.text.trim().isEmpty
+                ? null
+                : _reportSearchCtrl.text.trim(),
+        status: _selectedReportStatus,
+        userReportedId: _selectedReportedUserId,
+        reportedByUserId: _selectedReportedByUserId,
+        page: nextPage,
+        pageSize: _pageSize,
+      );
+
+      if (mounted) {
+        setState(() {
+          _reportsPage = nextPage;
+          reports.addAll(fetched);
+          _reportsHasMore = fetched.length == _pageSize;
+        });
+      }
     } catch (e) {
       print("Greška: $e");
     } finally {
@@ -241,20 +389,21 @@ class _ForumPageState extends State<ForumPage> {
   void deleteComment(int id) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Potvrda brisanja"),
-        content: const Text("Da li sigurno želiš obrisati komentar?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Otkaži"),
+      builder:
+          (_) => AlertDialog(
+            title: const Text("Potvrda brisanja"),
+            content: const Text("Da li sigurno želiš obrisati komentar?"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Otkaži"),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("Obriši"),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Obriši"),
-          ),
-        ],
-      ),
     );
 
     if (confirmed == true) {
@@ -266,9 +415,9 @@ class _ForumPageState extends State<ForumPage> {
         await loadComments(content: content, userId: _selectedCommentUserId);
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Greška: $e")),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Greška: $e")));
         }
       }
     }
@@ -277,20 +426,21 @@ class _ForumPageState extends State<ForumPage> {
   void deleteCommentAnswer(int id) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Potvrda brisanja"),
-        content: const Text("Da li sigurno želiš obrisati odgovor?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Otkaži"),
+      builder:
+          (_) => AlertDialog(
+            title: const Text("Potvrda brisanja"),
+            content: const Text("Da li sigurno želiš obrisati odgovor?"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Otkaži"),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("Obriši"),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Obriši"),
-          ),
-        ],
-      ),
     );
 
     if (confirmed == true) {
@@ -305,9 +455,9 @@ class _ForumPageState extends State<ForumPage> {
         );
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Greška: $e")),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("Greška: $e")));
         }
       }
     }
@@ -358,9 +508,9 @@ class _ForumPageState extends State<ForumPage> {
                   );
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Greška: $e")),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text("Greška: $e")));
                   }
                 }
               },
@@ -477,7 +627,11 @@ class _ForumPageState extends State<ForumPage> {
           ),
           const SizedBox(width: 16),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
+              await ApiService.logout();
+
+              if (!context.mounted) return;
+
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (_) => const LoginPage()),
@@ -487,10 +641,7 @@ class _ForumPageState extends State<ForumPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color.fromARGB(255, 181, 156, 74),
               foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: 12,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             child: const Text("Odjavi se"),
           ),
@@ -581,10 +732,7 @@ class _ForumPageState extends State<ForumPage> {
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(
-                    u.displayName,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(u.displayName, overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
@@ -611,10 +759,7 @@ class _ForumPageState extends State<ForumPage> {
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(
-                    u.displayName,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(u.displayName, overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
@@ -632,8 +777,7 @@ class _ForumPageState extends State<ForumPage> {
           child: DropdownButtonFormField<int?>(
             value: _selectedReportStatus,
             isExpanded: true,
-            decoration:
-                _filterDecoration("Status prijave", Icons.info_outline),
+            decoration: _filterDecoration("Status prijave", Icons.info_outline),
             items: const [
               DropdownMenuItem<int?>(
                 value: null,
@@ -655,8 +799,10 @@ class _ForumPageState extends State<ForumPage> {
           child: DropdownButtonFormField<int?>(
             value: _selectedReportedUserId,
             isExpanded: true,
-            decoration:
-                _filterDecoration("Prijavljen korisnik", Icons.person_off),
+            decoration: _filterDecoration(
+              "Prijavljen korisnik",
+              Icons.person_off,
+            ),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
@@ -665,10 +811,7 @@ class _ForumPageState extends State<ForumPage> {
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(
-                    u.displayName,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(u.displayName, overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
@@ -683,8 +826,7 @@ class _ForumPageState extends State<ForumPage> {
           child: DropdownButtonFormField<int?>(
             value: _selectedReportedByUserId,
             isExpanded: true,
-            decoration:
-                _filterDecoration("Prijavio korisnik", Icons.person),
+            decoration: _filterDecoration("Prijavio korisnik", Icons.person),
             items: [
               const DropdownMenuItem<int?>(
                 value: null,
@@ -693,10 +835,7 @@ class _ForumPageState extends State<ForumPage> {
               ..._filterUsers.map(
                 (u) => DropdownMenuItem<int?>(
                   value: u.id,
-                  child: Text(
-                    u.displayName,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: Text(u.displayName, overflow: TextOverflow.ellipsis),
                 ),
               ),
             ],
@@ -756,12 +895,12 @@ class _ForumPageState extends State<ForumPage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight:
-                      isActive ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
                   color: isActive ? Colors.black : Colors.grey[700],
-                  backgroundColor: isActive
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.transparent,
+                  backgroundColor:
+                      isActive
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.transparent,
                 ),
               ),
             ),
@@ -782,15 +921,40 @@ class _ForumPageState extends State<ForumPage> {
             child: Text("Nema komentara za odabrane filtere."),
           );
         }
-        return ListView.builder(
-          itemCount: comments.length,
-          itemBuilder: (context, index) {
-            final comment = comments[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: commentCard(comment),
-            );
-          },
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: comments.length + (_commentsHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == comments.length) {
+                    return InkWell(
+                      onTap: _loadingComments ? null : loadMoreComments,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingComments ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final comment = comments[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: commentCard(comment),
+                  );
+                },
+              ),
+            ),
+          ],
         );
 
       case "ODGOVORI":
@@ -802,15 +966,44 @@ class _ForumPageState extends State<ForumPage> {
             child: Text("Nema odgovora za odabrane filtere."),
           );
         }
-        return ListView.builder(
-          itemCount: commentAnswers.length,
-          itemBuilder: (context, index) {
-            final reply = commentAnswers[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: commentAnswerCard(reply),
-            );
-          },
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: commentAnswers.length + (_answersHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == commentAnswers.length) {
+                    return InkWell(
+                      onTap:
+                          _loadingCommentAnswers
+                              ? null
+                              : loadMoreCommentAnswers,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingCommentAnswers
+                                ? "Učitavanje..."
+                                : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  final reply = commentAnswers[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: commentAnswerCard(reply),
+                  );
+                },
+              ),
+            ),
+          ],
         );
 
       case "PRIJAVE":
@@ -818,19 +1011,41 @@ class _ForumPageState extends State<ForumPage> {
           return const Center(child: CircularProgressIndicator());
         }
         if (reports.isEmpty) {
-          return const Center(
-            child: Text("Nema prijava za odabrane filtere."),
-          );
+          return const Center(child: Text("Nema prijava za odabrane filtere."));
         }
-        return ListView.builder(
-          itemCount: reports.length,
-          itemBuilder: (context, index) {
-            final report = reports[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: reportCard(report),
-            );
-          },
+        return Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: reports.length + (_reportsHasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == reports.length) {
+                    return InkWell(
+                      onTap: _loadingReports ? null : loadMoreUserReports,
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        child: Center(
+                          child: Text(
+                            _loadingReports ? "Učitavanje..." : "Učitaj još",
+                            style: const TextStyle(
+                              color: Color.fromARGB(255, 91, 80, 45),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                  final report = reports[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: reportCard(report),
+                  );
+                },
+              ),
+            ),
+          ],
         );
 
       default:
@@ -874,9 +1089,10 @@ class _ForumPageState extends State<ForumPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
-            color: isActive
-                ? const Color.fromARGB(255, 181, 156, 74)
-                : Colors.transparent,
+            color:
+                isActive
+                    ? const Color.fromARGB(255, 181, 156, 74)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -1130,11 +1346,7 @@ class _ForumPageState extends State<ForumPage> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.event,
-                            size: 16,
-                            color: Colors.grey[700],
-                          ),
+                          Icon(Icons.event, size: 16, color: Colors.grey[700]),
                           const SizedBox(width: 6),
                           const Text(
                             "Datum prijave:",

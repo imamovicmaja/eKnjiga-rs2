@@ -1,16 +1,12 @@
-using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
 using eKnjiga.Services.Database;
+using eKnjiga.Model.Constants;
 using MapsterMapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
 
 namespace eKnjiga.Services
 {
@@ -46,10 +42,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private PublicUserResponse? MapToPublicUserResponse(Database.User? user)
@@ -105,6 +101,8 @@ namespace eKnjiga.Services
 
         public override async Task<PagedResult<CommentAnswerResponse>> GetAsync(CommentAnswerSearchObject search)
         {
+            search ??= new CommentAnswerSearchObject();
+
             var query = _context.CommentAnswers
                 .Include(c => c.User)
                     .ThenInclude(u => u.Role)
@@ -120,24 +118,21 @@ namespace eKnjiga.Services
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderByDescending(c => c.CreatedAt);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
 

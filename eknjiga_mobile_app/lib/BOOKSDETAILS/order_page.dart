@@ -21,11 +21,7 @@ class _OrderPageState extends State<OrderPage> {
   static const LinearGradient _pageGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [
-      Color(0xFFD4D8F3),
-      Color(0xFF8D9EDB),
-      Color(0xFFB59C4A),
-    ],
+    colors: [Color(0xFFD4D8F3), Color(0xFF8D9EDB), Color(0xFFB59C4A)],
     stops: [0.0, 0.56, 1.0],
   );
 
@@ -60,21 +56,21 @@ class _OrderPageState extends State<OrderPage> {
   }
 
   Future<void> _loadFavorite() async {
-  final userId = ApiService.userID;
-  if (userId == 0) return;
+    final userId = ApiService.userID;
+    if (userId == 0) return;
 
-  try {
-    final isFav = await ApiService.getFavorite(widget.book.id);
+    try {
+      final isFav = await ApiService.getFavorite(widget.book.id);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isFavorite = isFav;
-    });
-  } catch (e) {
-    debugPrint('Greška pri dohvaćanju favorita: $e');
+      setState(() {
+        _isFavorite = isFav;
+      });
+    } catch (e) {
+      debugPrint('Greška pri dohvaćanju favorita: $e');
+    }
   }
-}
 
   Future<void> _submitReview() async {
     if (_userRating == 0) {
@@ -119,7 +115,6 @@ class _OrderPageState extends State<OrderPage> {
         await ApiService.updateReview(
           reviewId: _existingReviewId!,
           rating: _userRating,
-          bookId: widget.book.id,
         );
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -149,7 +144,10 @@ class _OrderPageState extends State<OrderPage> {
           Stack(
             children: [
               IconButton(
-                icon: const Icon(Icons.shopping_cart_outlined, color: Colors.black),
+                icon: const Icon(
+                  Icons.shopping_cart_outlined,
+                  color: Colors.black,
+                ),
                 onPressed: () {
                   Navigator.push(
                     context,
@@ -172,7 +170,10 @@ class _OrderPageState extends State<OrderPage> {
                       ),
                       child: Text(
                         '$value',
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                        ),
                       ),
                     );
                   },
@@ -205,9 +206,9 @@ class _OrderPageState extends State<OrderPage> {
                   _isFavorite = !newValue;
                 });
 
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Greška: $e')),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('Greška: $e')));
               }
             },
           ),
@@ -253,12 +254,18 @@ class _OrderPageState extends State<OrderPage> {
                                       ),
                                     );
                                   },
-                                  loadingBuilder: (context, child, loadingProgress) {
+                                  loadingBuilder: (
+                                    context,
+                                    child,
+                                    loadingProgress,
+                                  ) {
                                     if (loadingProgress == null) return child;
                                     return Container(
                                       color: Colors.white,
                                       child: const Center(
-                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
                                       ),
                                     );
                                   },
@@ -281,7 +288,10 @@ class _OrderPageState extends State<OrderPage> {
                         const SizedBox(height: 2),
                         Text(
                           book.authors.join(', '),
-                          style: const TextStyle(fontSize: 13, color: Colors.black87),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black87,
+                          ),
                           textAlign: TextAlign.center,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -291,7 +301,10 @@ class _OrderPageState extends State<OrderPage> {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             "Opis",
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -299,7 +312,10 @@ class _OrderPageState extends State<OrderPage> {
                           book.description.isNotEmpty
                               ? book.description
                               : 'Opis nije dostupan.',
-                          style: const TextStyle(fontSize: 12, color: Colors.black87),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
                           textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
@@ -309,7 +325,10 @@ class _OrderPageState extends State<OrderPage> {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             "O autoru",
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 2),
@@ -317,7 +336,10 @@ class _OrderPageState extends State<OrderPage> {
                           book.authors.isNotEmpty
                               ? book.authors.join(', ')
                               : 'Podaci o autoru nisu dostupni.',
-                          style: const TextStyle(fontSize: 12, color: Colors.black87),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black87,
+                          ),
                           textAlign: TextAlign.center,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -327,7 +349,10 @@ class _OrderPageState extends State<OrderPage> {
                           alignment: Alignment.centerLeft,
                           child: Text(
                             "Moja recenzija",
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 4),
@@ -377,24 +402,25 @@ class _OrderPageState extends State<OrderPage> {
                       ),
                       elevation: 0,
                     ),
-                    child: _submitting
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.black,
+                    child:
+                        _submitting
+                            ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                            : Text(
+                              _existingReviewId == null
+                                  ? 'Pošalji recenziju'
+                                  : 'Izmijeni recenziju',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          )
-                        : Text(
-                            _existingReviewId == null
-                                ? 'Pošalji recenziju'
-                                : 'Izmijeni recenziju',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -419,10 +445,11 @@ class _OrderPageState extends State<OrderPage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => PdfViewerPage(
-                              bytes: bytes,
-                              title: book.name,
-                              ),
+                            builder:
+                                (_) => PdfViewerPage(
+                                  bytes: bytes,
+                                  title: book.name,
+                                ),
                           ),
                         );
                       } catch (e) {
@@ -436,9 +463,9 @@ class _OrderPageState extends State<OrderPage> {
                           message = 'Nemate pristup ovoj knjizi.';
                         }
 
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(message)),
-                        );
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(message)));
                       }
                     },
                     child: const Text(

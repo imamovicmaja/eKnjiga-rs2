@@ -28,31 +28,32 @@ namespace eKnjiga.Services
 
         public override async Task<PagedResult<CityResponse>> GetAsync(CitySearchObject search)
         {
+            search ??= new CitySearchObject();
+
             var query = _context.Cities
                 .Include(c => c.Country)
                 .AsQueryable();
 
             query = ApplyFilter(query, search);
 
+            query = query.OrderByDescending(c => c.Id);
+
+            var page = search.Page < 1 ? 1 : search.Page;
+            var pageSize = search.PageSize < 1 ? 10 : search.PageSize;
+
             int? totalCount = null;
+
             if (search.IncludeTotalCount)
             {
                 totalCount = await query.CountAsync();
             }
 
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
+            query = query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize);
 
             var list = await query.ToListAsync();
+
             return new PagedResult<CityResponse>
             {
                 Items = list.Select(MapToResponse).ToList(),

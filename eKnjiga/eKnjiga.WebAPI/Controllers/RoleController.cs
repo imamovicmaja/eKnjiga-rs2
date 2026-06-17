@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.WebAPI.Controllers
 {
-    [Authorize]
+    [Authorize(Roles = "Admin")]
     public class RoleController : BaseCRUDController<RoleResponse, RoleSearchObject, RoleUpsertRequest, RoleUpsertRequest>
     {
         public RoleController(IRoleService service) : base(service)

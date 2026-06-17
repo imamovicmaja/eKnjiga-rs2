@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace eKnjiga.Services
 {
-    public interface IReviewService : ICRUDService<ReviewResponse, ReviewSearchObject, ReviewUpsertRequest, ReviewUpsertRequest>
+    public interface IReviewService : ICRUDService<ReviewResponse, ReviewSearchObject, ReviewUpsertRequest, ReviewUpdateRequest>
     {
     }
 }

@@ -16,38 +16,6 @@ namespace eKnjiga.Services
         {
         }
 
-        public override async Task<PagedResult<RoleResponse>> GetAsync(RoleSearchObject search)
-        {
-            var query = _context.Roles.AsQueryable();
-
-            query = ApplyFilter(query, search);
-
-            int? totalCount = null;
-            if (search.IncludeTotalCount)
-            {
-                totalCount = await query.CountAsync();
-            }
-
-            if (!search.RetrieveAll)
-            {
-                if (search.Page.HasValue)
-                {
-                    query = query.Skip(search.Page.Value * search.PageSize.Value);
-                }
-                if (search.PageSize.HasValue)
-                {
-                    query = query.Take(search.PageSize.Value);
-                }
-            }
-
-            var list = await query.ToListAsync();
-            return new PagedResult<RoleResponse>
-            {
-                Items = list.Select(MapToResponse).ToList(),
-                TotalCount = totalCount
-            };
-        }
-
         protected override IQueryable<Database.Role> ApplyFilter(IQueryable<Database.Role> query, RoleSearchObject search)
         {
             if (!string.IsNullOrEmpty(search.Name))

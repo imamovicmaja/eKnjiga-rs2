@@ -3,7 +3,6 @@ import '../models/book.dart';
 import '../services/api_service.dart';
 import '../SHOP/shop_page.dart';
 import '../HOME/cart.dart';
-import '../models/favorites.dart';
 import 'select_format_page.dart';
 import '../SHOP/reservation_confirmation_page.dart';
 import '../widgets/book_image.dart';
@@ -21,11 +20,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
   static const LinearGradient _pageGradient = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [
-      Color(0xFFD4D8F3),
-      Color(0xFF8D9EDB),
-      Color(0xFFB59C4A),
-    ],
+    colors: [Color(0xFFD4D8F3), Color(0xFF8D9EDB), Color(0xFFB59C4A)],
     stops: [0.0, 0.56, 1.0],
   );
 
@@ -78,10 +73,7 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
         appBar: AppBar(
           backgroundColor: const Color(0xFFD4D8F3),
           elevation: 0,
-          title: const Text(
-            'Greška',
-            style: TextStyle(color: Colors.black),
-          ),
+          title: const Text('Greška', style: TextStyle(color: Colors.black)),
           iconTheme: const IconThemeData(color: Colors.black),
         ),
         body: Container(
@@ -184,27 +176,28 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
                     children: [
                       Hero(
                         tag: 'book-cover-${currentBook.id}',
-                        child: imageUrl.isNotEmpty
-                            ? BookImage(
-                                url: imageUrl,
-                                height: 230,
-                                width: 155,
-                                borderRadius: 28,
-                              )
-                            : Container(
-                                height: 230,
-                                width: 155,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(28),
+                        child:
+                            imageUrl.isNotEmpty
+                                ? BookImage(
+                                  url: imageUrl,
+                                  height: 230,
+                                  width: 155,
+                                  borderRadius: 28,
+                                )
+                                : Container(
+                                  height: 230,
+                                  width: 155,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade200,
+                                    borderRadius: BorderRadius.circular(28),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: const Icon(
+                                    Icons.menu_book,
+                                    size: 52,
+                                    color: Colors.black45,
+                                  ),
                                 ),
-                                alignment: Alignment.center,
-                                child: const Icon(
-                                  Icons.menu_book,
-                                  size: 52,
-                                  color: Colors.black45,
-                                ),
-                              ),
                       ),
                       const SizedBox(height: 12),
                       Text(
@@ -303,9 +296,10 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => ReservationConfirmationPage(
-                                book: currentBook,
-                              ),
+                              builder:
+                                  (_) => ReservationConfirmationPage(
+                                    book: currentBook,
+                                  ),
                             ),
                           );
                         },
@@ -331,7 +325,8 @@ class _BookDetailsPageState extends State<BookDetailsPage> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) => SelectFormatPage(book: currentBook),
+                              builder:
+                                  (_) => SelectFormatPage(book: currentBook),
                             ),
                           );
                         },

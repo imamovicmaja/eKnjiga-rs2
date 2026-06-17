@@ -10,5 +10,10 @@ namespace eKnjiga.Services
     {
         Task<PagedResult<UserReportResponse>> GetAsync(UserReportSearchObject search);
         Task<UserReportResponse?> GetByIdAsync(int id);
+        Task<UserReportResponse> CreateReportAsync(CreateUserReportRequest request);
+
+        Task<UserReportResponse?> ProcessReportAsync(int id, ProcessUserReportRequest request);
+
+        Task<bool> DeleteAsync(int id);
     }
 }

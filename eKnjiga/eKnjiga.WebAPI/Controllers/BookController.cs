@@ -2,7 +2,9 @@ using eKnjiga.Model;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
 using eKnjiga.Model.SearchObjects;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services;
+using eKnjiga.WebAPI.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -111,7 +113,7 @@ namespace eKnjiga.WebAPI.Controllers
         }
 
         [HttpPost]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = RoleNames.Admin)]
         public async Task<ActionResult<BookResponse>> Insert([FromBody] BookUpsertRequest request)
         {
             var result = await _bookService.InsertAsync(request);
@@ -119,7 +121,7 @@ namespace eKnjiga.WebAPI.Controllers
         }
 
         [HttpPut("{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = RoleNames.Admin)]
         public async Task<ActionResult<BookResponse>> Update(int id, [FromBody] BookUpsertRequest request)
         {
             var result = await _bookService.UpdateAsync(id, request);
@@ -131,42 +133,54 @@ namespace eKnjiga.WebAPI.Controllers
         }
 
         [HttpPut("{id}/cover")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = RoleNames.Admin)]
         public async Task<IActionResult> UploadCover(int id, IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest("Fajl nije poslan.");
+            try
+            {
+                await FileUploadValidator.ValidateImageAsync(file);
 
-            var imagePath = await SaveImage(file);
+                var imagePath = await SaveImage(file);
 
-            var success = await _bookService.UpdateCoverAsync(id, imagePath);
+                var success = await _bookService.UpdateCoverAsync(id, imagePath);
 
-            if (!success)
-                return NotFound();
+                if (!success)
+                    return NotFound();
 
-            return Ok(new { coverImage = imagePath });
+                return Ok(new { coverImage = imagePath });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpPut("{id}/pdf-upload")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = RoleNames.Admin)]
         public async Task<IActionResult> UploadPdf(int id, IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                return BadRequest("Fajl nije poslan.");
+            try
+            {
+                await FileUploadValidator.ValidatePdfAsync(file);
 
-            using var ms = new MemoryStream();
-            await file.CopyToAsync(ms);
+                using var ms = new MemoryStream();
+                await file.CopyToAsync(ms);
 
-            var success = await _bookService.UpdatePdfAsync(id, ms.ToArray());
+                var success = await _bookService.UpdatePdfAsync(id, ms.ToArray());
 
-            if (!success)
-                return NotFound();
+                if (!success)
+                    return NotFound();
 
-            return Ok();
+                return Ok();
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpDelete("{id}")]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = RoleNames.Admin)]
         public async Task<IActionResult> Delete(int id)
         {
             var deleted = await _bookService.DeleteAsync(id);
@@ -179,19 +193,14 @@ namespace eKnjiga.WebAPI.Controllers
 
         private async Task<string> SaveImage(IFormFile file)
         {
-            if (file == null || file.Length == 0)
-                throw new Exception("Fajl nije poslan.");
-
-            if (file.Length > 1024 * 1024)
-                throw new Exception("Slika mora biti manja od 1 MB.");
-
             var webRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
             var folderPath = Path.Combine(webRoot, "images", "books");
 
             if (!Directory.Exists(folderPath))
                 Directory.CreateDirectory(folderPath);
 
-            var fileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            var fileName = $"{Guid.NewGuid()}{extension}";
             var fullPath = Path.Combine(folderPath, fileName);
 
             using (var stream = new FileStream(fullPath, FileMode.Create))

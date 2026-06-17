@@ -147,8 +147,8 @@ void addBook(
               if (initialData == null) {
                 final createdBook = await ApiService.createBook(bookData);
 
-                if (createdBook['id'] != null) {
-                  bookId = int.parse(createdBook['id'].toString());
+                if (createdBook.id != null) {
+                  bookId = int.parse(createdBook.id.toString());
                 } else {
                   throw Exception(
                     'Knjiga je kreirana, ali ID nije vraćen iz API-ja.',

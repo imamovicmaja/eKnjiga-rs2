@@ -1,15 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using eKnjiga.Model.Enums;
 using eKnjiga.Model.Requests;
 using eKnjiga.Model.Responses;
+using eKnjiga.Model.Constants;
 using eKnjiga.Services.Database;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +20,7 @@ namespace eKnjiga.Services
         private readonly eKnjigaDbContext _context;
         private readonly ILogger<PaypalService> _logger;
         private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly INotificationService _notificationService;
 
         private readonly string _clientId;
         private readonly string _clientSecret;
@@ -38,13 +34,15 @@ namespace eKnjiga.Services
             eKnjigaDbContext context,
             IConfiguration cfg,
             ILogger<PaypalService> logger,
-            IHttpContextAccessor httpContextAccessor
+            IHttpContextAccessor httpContextAccessor,
+            INotificationService notificationService
         )
         {
             _httpFactory = httpFactory;
             _context = context;
             _logger = logger;
             _httpContextAccessor = httpContextAccessor;
+            _notificationService = notificationService;
 
             _clientId = cfg["PayPal:ClientId"] ?? throw new ArgumentException("PayPal:ClientId nije postavljen.");
             _clientSecret = cfg["PayPal:ClientSecret"] ?? throw new ArgumentException("PayPal:ClientSecret nije postavljen.");
@@ -76,10 +74,10 @@ namespace eKnjiga.Services
             if (user == null)
                 return false;
 
-            return user.IsInRole("Admin") ||
+            return user.IsInRole(RoleNames.Admin) ||
                    user.Claims.Any(c =>
                        (c.Type == ClaimTypes.Role || c.Type == "role" || c.Type == "Role") &&
-                       c.Value == "Admin");
+                       c.Value == RoleNames.Admin);
         }
 
         private void EnsureUserAuthenticated()
@@ -124,26 +122,79 @@ namespace eKnjiga.Services
             return json.RootElement.GetProperty("access_token").GetString()!;
         }
 
+        private async Task CompletePaidOrderAsync(Order dbOrder, string? captureId, CancellationToken ct)
+        {
+            dbOrder.PaypalCaptureId = captureId;
+            dbOrder.PaymentStatus = PaymentStatus.Paid;
+            dbOrder.OrderStatus = OrderStatus.Completed;
+            dbOrder.PaypalSandbox = _baseUrl.Contains("sandbox");
+
+            if (dbOrder.Type == OrderType.Purchase)
+            {
+                var pdfBookIds = dbOrder.OrderItems
+                    .Where(oi => oi.IsPdfPurchase)
+                    .Select(oi => oi.BookId)
+                    .Distinct()
+                    .ToList();
+
+                var existingBookIds = await _context.UserBooks
+                    .Where(ub => ub.UserId == dbOrder.UserId && pdfBookIds.Contains(ub.BookId))
+                    .Select(ub => ub.BookId)
+                    .ToListAsync(ct);
+
+                var bookIdsToAdd = pdfBookIds.Except(existingBookIds);
+
+                foreach (var bookId in bookIdsToAdd)
+                {
+                    _context.UserBooks.Add(new UserBook
+                    {
+                        UserId = dbOrder.UserId,
+                        BookId = bookId
+                    });
+                }
+            }
+        }
+
         public async Task<PaypalCreateOrderResponse> CreateOrderAsync(PaypalCreateOrderRequest model, CancellationToken ct = default)
         {
             EnsureUserAuthenticated();
 
-            var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == model.OrderId, ct);
+            var order = await _context.Orders
+                .FirstOrDefaultAsync(o => o.Id == model.OrderId, ct);
+
             if (order == null)
                 throw new KeyNotFoundException($"Order {model.OrderId} ne postoji.");
 
             EnsureCanAccessOrder(order);
+
+            if (order.PaymentStatus == PaymentStatus.Paid)
+                throw new InvalidOperationException("Narudžba je već plaćena.");
+
+            if (order.OrderStatus == OrderStatus.Completed)
+                throw new InvalidOperationException("Završena narudžba se ne može ponovo platiti.");
+
+            if (order.OrderStatus == OrderStatus.Cancelled)
+                throw new InvalidOperationException("Otkazana narudžba se ne može platiti.");
+
+            if (!string.IsNullOrWhiteSpace(order.PaypalOrderId) &&
+                order.PaymentStatus == PaymentStatus.Pending)
+            {
+                throw new InvalidOperationException("Za ovu narudžbu već postoji aktivan PayPal order.");
+            }
 
             if (order.TotalPrice != model.Amount)
                 throw new InvalidOperationException($"Amount mismatch. DB={order.TotalPrice} Request={model.Amount}");
 
             var currency = string.IsNullOrWhiteSpace(model.Currency) ? "EUR" : model.Currency;
 
+            if (currency != "EUR")
+                throw new InvalidOperationException("Dozvoljena valuta za PayPal plaćanje je EUR.");
+
             var token = await GetAccessTokenAsync(ct);
             var client = _httpFactory.CreateClient("paypal");
 
             const decimal BAM_PER_EUR = 1.95583m;
-            var amountEur = Math.Round((decimal)model.Amount / BAM_PER_EUR, 2, MidpointRounding.AwayFromZero);
+            var amountEur = Math.Round(order.TotalPrice / BAM_PER_EUR, 2, MidpointRounding.AwayFromZero);
             var amountStr = amountEur.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);
 
             var payload = new
@@ -153,7 +204,7 @@ namespace eKnjiga.Services
                 {
             new
             {
-                reference_id = model.ReferenceId ?? order.Id.ToString(),
+                reference_id = order.Id.ToString(),
                 description = $"eKnjiga order #{order.Id}",
                 amount = new
                 {
@@ -205,13 +256,15 @@ namespace eKnjiga.Services
 
         public async Task<PaypalCaptureOrderResponse> CaptureOrderAsync(string orderId, CancellationToken ct = default)
         {
+            EnsureUserAuthenticated();
+
             var dbOrder = await _context.Orders
+                .Include(o => o.OrderItems)
                 .FirstOrDefaultAsync(o => o.PaypalOrderId == orderId, ct);
 
             if (dbOrder == null)
                 throw new KeyNotFoundException("Order not found.");
 
-            EnsureUserAuthenticated();
             EnsureCanAccessOrder(dbOrder);
 
             if (!string.IsNullOrWhiteSpace(dbOrder.PaypalCaptureId))
@@ -223,6 +276,9 @@ namespace eKnjiga.Services
                     CaptureId = dbOrder.PaypalCaptureId
                 };
             }
+
+            if (dbOrder.PaymentStatus == PaymentStatus.Paid)
+                throw new InvalidOperationException("Narudžba je već plaćena.");
 
             var token = await GetAccessTokenAsync(ct);
             var client = _httpFactory.CreateClient("paypal");
@@ -241,25 +297,67 @@ namespace eKnjiga.Services
                 throw new InvalidOperationException($"PayPal capture error {(int)captureRes.StatusCode}: {captureBody}");
 
             using var capDoc = JsonDocument.Parse(captureBody);
+            var root = capDoc.RootElement;
 
-            var status = capDoc.RootElement.GetProperty("status").GetString()!;
-            var captureId = capDoc.RootElement
+            var status = root.GetProperty("status").GetString();
+
+            if (status != "COMPLETED")
+                throw new InvalidOperationException($"PayPal plaćanje nije završeno. Status: {status}");
+
+            var capture = root
                 .GetProperty("purchase_units")[0]
                 .GetProperty("payments")
-                .GetProperty("captures")[0]
-                .GetProperty("id")
-                .GetString();
+                .GetProperty("captures")[0];
 
-            dbOrder.PaypalCaptureId = captureId;
-            dbOrder.PaymentStatus = PaymentStatus.Paid;
-            dbOrder.PaypalSandbox = _baseUrl.Contains("sandbox");
+            var captureId = capture.GetProperty("id").GetString();
+
+            var captureStatus = capture.GetProperty("status").GetString();
+            if (captureStatus != "COMPLETED")
+                throw new InvalidOperationException($"PayPal capture nije završen. Status: {captureStatus}");
+
+            var amountElement = capture.GetProperty("amount");
+            var currency = amountElement.GetProperty("currency_code").GetString();
+            var valueString = amountElement.GetProperty("value").GetString();
+
+            if (currency != "EUR")
+                throw new InvalidOperationException($"Neispravna valuta. PayPal={currency}, očekivano=EUR.");
+
+            if (!decimal.TryParse(
+                    valueString,
+                    System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var capturedAmountEur))
+            {
+                throw new InvalidOperationException("PayPal iznos nije validan.");
+            }
+
+            const decimal BAM_PER_EUR = 1.95583m;
+            var expectedAmountEur = Math.Round(dbOrder.TotalPrice / BAM_PER_EUR, 2, MidpointRounding.AwayFromZero);
+
+            if (capturedAmountEur != expectedAmountEur)
+            {
+                throw new InvalidOperationException(
+                    $"Iznos se ne poklapa. PayPal={capturedAmountEur} EUR, očekivano={expectedAmountEur} EUR."
+                );
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync(ct);
+
+            await CompletePaidOrderAsync(dbOrder, captureId, ct);
 
             await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            await _notificationService.CreateAsync(
+                dbOrder.UserId,
+                "Plaćanje",
+                "Vaše plaćanje je uspješno evidentirano."
+            );
 
             return new PaypalCaptureOrderResponse
             {
                 Id = orderId,
-                Status = status,
+                Status = status!,
                 CaptureId = captureId
             };
         }
@@ -300,8 +398,97 @@ namespace eKnjiga.Services
 
         public async Task HandleWebhookAsync(string body, CancellationToken ct = default)
         {
-            _logger.LogInformation("Webhook received: {Body}", body);
-            await Task.CompletedTask;
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("event_type", out var eventTypeElement))
+                return;
+
+            var eventType = eventTypeElement.GetString();
+
+            if (eventType != "PAYMENT.CAPTURE.COMPLETED")
+            {
+                _logger.LogInformation("PayPal webhook ignored. EventType={EventType}", eventType);
+                return;
+            }
+
+            var resource = root.GetProperty("resource");
+
+            var captureId = resource.GetProperty("id").GetString();
+            var captureStatus = resource.GetProperty("status").GetString();
+
+            if (captureStatus != "COMPLETED")
+                return;
+
+            var amountElement = resource.GetProperty("amount");
+            var currency = amountElement.GetProperty("currency_code").GetString();
+            var valueString = amountElement.GetProperty("value").GetString();
+
+            if (currency != "EUR")
+                throw new InvalidOperationException($"Neispravna valuta u webhooku. PayPal={currency}, očekivano=EUR.");
+
+            if (!decimal.TryParse(
+                    valueString,
+                    System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var capturedAmountEur))
+            {
+                throw new InvalidOperationException("PayPal webhook iznos nije validan.");
+            }
+
+            string? paypalOrderId = null;
+
+            if (resource.TryGetProperty("supplementary_data", out var supplementaryData) &&
+                supplementaryData.TryGetProperty("related_ids", out var relatedIds) &&
+                relatedIds.TryGetProperty("order_id", out var orderIdElement))
+            {
+                paypalOrderId = orderIdElement.GetString();
+            }
+
+            if (string.IsNullOrWhiteSpace(paypalOrderId))
+            {
+                _logger.LogWarning("PayPal webhook nema order_id. CaptureId={CaptureId}", captureId);
+                return;
+            }
+
+            var dbOrder = await _context.Orders
+                .Include(o => o.OrderItems)
+                .FirstOrDefaultAsync(o => o.PaypalOrderId == paypalOrderId, ct);
+
+            if (dbOrder == null)
+            {
+                _logger.LogWarning("PayPal webhook order nije pronađen. PaypalOrderId={PaypalOrderId}", paypalOrderId);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(dbOrder.PaypalCaptureId))
+            {
+                _logger.LogInformation("PayPal webhook već obrađen. CaptureId={CaptureId}", dbOrder.PaypalCaptureId);
+                return;
+            }
+
+            const decimal BAM_PER_EUR = 1.95583m;
+            var expectedAmountEur = Math.Round(dbOrder.TotalPrice / BAM_PER_EUR, 2, MidpointRounding.AwayFromZero);
+
+            if (capturedAmountEur != expectedAmountEur)
+            {
+                throw new InvalidOperationException(
+                    $"Webhook iznos se ne poklapa. PayPal={capturedAmountEur} EUR, očekivano={expectedAmountEur} EUR."
+                );
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync(ct);
+
+            await CompletePaidOrderAsync(dbOrder, captureId, ct);
+
+            await _context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+
+            await _notificationService.CreateAsync(
+                dbOrder.UserId,
+                "Plaćanje",
+                "Vaše plaćanje je uspješno evidentirano."
+            );
         }
     }
 }
